@@ -1,0 +1,105 @@
+---
+title: "ML Pipeline Overview: HCIMS AI Complaint Intelligence"
+description: "How HCIMS AI uses sentence embeddings, KMeans clustering, and a dual-model architecture to classify hotel complaints and detect appreciation."
+---
+
+The HCIMS AI machine learning pipeline transforms raw hotel guest reviews into structured, actionable intelligence. At its core, the system encodes free-text reviews into dense semantic embeddings using the `all-MiniLM-L6-v2` sentence transformer, then applies a two-model architecture: one model clusters and matches complaints to known issues, and a second model determines whether an incoming review expresses genuine appreciation rather than a complaint. The result is a fully reproducible, versioned pipeline that routes each review to the correct hotel department with an assigned priority level.
+
+## Two-model architecture
+
+The pipeline separates guest feedback into two distinct classification paths. Each incoming review is first evaluated by the appreciation detector before the complaint classifier runs, so positive feedback never contaminates the complaint dataset.
+
+<CardGroup cols={2}>
+  <Card title="Complaint classifier" icon="triangle-exclamation" href="/ml/training">
+    KMeans clustering over L2-normalized sentence embeddings. Finds the highest-similarity
+    known complaint, returns its department and a keyword-derived priority level.
+  </Card>
+  <Card title="Appreciation detector" icon="star" href="/ml/inference">
+    Combines DistilBERT sentiment analysis, cosine similarity against curated positive
+    references, and India-specific lexical patterns to detect genuine guest praise.
+  </Card>
+</CardGroup>
+
+## Embedding model
+
+Both models share the same embedding backbone: `all-MiniLM-L6-v2` from the `sentence-transformers` library. This model produces 384-dimensional vectors that are L2-normalized before any distance computation, making cosine similarity equivalent to a dot product and improving clustering stability.
+
+```python
+from sentence_transformers import SentenceTransformer
+from sklearn.preprocessing import normalize
+
+model = SentenceTransformer("all-MiniLM-L6-v2")
+embeddings = model.encode(texts, batch_size=64, convert_to_numpy=True)
+embeddings = normalize(embeddings)  # L2-normalize for cosine similarity
+```
+
+## Artifacts
+
+The training pipeline produces four binary artifacts stored in the `artifacts/` directory. All artifacts are tracked by DVC and versioned alongside the source data.
+
+| Artifact | Format | Contents |
+|---|---|---|
+| `df.pkl` | Pickle | Cleaned complaint DataFrame loaded from `data/expanded_complaints.csv` |
+| `embeddings.pkl` | Pickle | L2-normalized sentence embeddings for every row in `df.pkl` |
+| `kmeans.pkl` | Pickle | Trained `sklearn.cluster.KMeans` model |
+| `metrics.pkl` | Pickle | Dictionary with `best_clusters`, `silhouette_score`, and `dataset_size` |
+
+<Note>
+  The inference engine loads `df.pkl` and `embeddings.pkl` at startup. `kmeans.pkl` is used
+  during cluster analysis and model quality checks; it is not required for per-review prediction.
+</Note>
+
+## Experiment tracking with MLflow
+
+Every training run is wrapped in an MLflow experiment. Three parameters and one metric are logged automatically:
+
+```python
+mlflow.log_param("embedding_model", EMBEDDING_MODEL)   # "all-MiniLM-L6-v2"
+mlflow.log_param("dataset_size", len(df))
+mlflow.log_param("clusters", best_k)
+
+mlflow.log_metric("silhouette_score", final_score)
+```
+
+Launch the MLflow UI to compare runs across different datasets or cluster ranges:
+
+```bash
+mlflow ui
+```
+
+## Data versioning with DVC
+
+The full training pipeline is codified as a single DVC stage in `dvc.yaml`. DVC tracks the input data file and all four output artifacts, ensuring that reruns are skipped when neither the source code nor the data has changed.
+
+```yaml
+stages:
+  train:
+    cmd: python src/train_model.py
+    deps:
+      - src/train_model.py
+      - data/expanded_complaints.csv
+    outs:
+      - artifacts/kmeans.pkl
+      - artifacts/embeddings.pkl
+      - artifacts/df.pkl
+      - artifacts/metrics.pkl
+```
+
+Reproduce the full pipeline from scratch with:
+
+```bash
+dvc repro
+```
+
+## Explore the pipeline
+
+<CardGroup cols={2}>
+  <Card title="Training" icon="brain" href="/ml/training">
+    Step-by-step breakdown of how the KMeans complaint model is trained, how optimal
+    cluster count is selected, and how to reproduce a run.
+  </Card>
+  <Card title="Inference" icon="bolt" href="/ml/inference">
+    How the system processes a new guest review at runtime, including the appreciation
+    detection flow and priority assignment logic.
+  </Card>
+</CardGroup>

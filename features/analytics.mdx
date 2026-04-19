@@ -1,0 +1,111 @@
+---
+title: "Analytics Dashboard — Ticket Insights and Trends"
+description: "Visualise complaint volumes, department health, priority distribution, and recurring issues — filtered by date range and scoped to your admin account."
+---
+
+The Analytics page gives hotel administrators a live, interactive view of how complaints and appreciations are moving through their property. Rather than exporting data to a spreadsheet, everything is rendered directly in the dashboard using Recharts-powered charts that update as new tickets are uploaded. All data shown is scoped to the signed-in admin account, so administrators from different hotel properties never see each other's data. The dashboard also supports dark mode with a palette that adapts automatically to the user's system preference.
+
+## What the dashboard shows
+
+The analytics page is divided into a summary bar, several chart panels, and two detail panels for department performance and recurring issues.
+
+### Summary cards
+
+Five at-a-glance metrics are displayed at the top of the page:
+
+| Metric | Description |
+|--------|-------------|
+| **Total Tickets** | Count of complaint tickets uploaded in the selected date range |
+| **Open Now** | Active + Pending tickets (unresolved) |
+| **Completed** | Resolved + Extended tickets (closed) |
+| **On-Time Rate** | Percentage of completed tickets resolved before their deadline: `Resolved / (Resolved + Extended) × 100` |
+| **Appreciations** | Count of positive feedback records in the selected range |
+
+### Chart panels
+
+<AccordionGroup>
+  <Accordion title="Department ticket health" defaultOpen={true}>
+    A stacked bar chart showing how many tickets each department has in each status (Active, Pending, Resolved, Extended). This makes it easy to spot a department that is accumulating unresolved work.
+  </Accordion>
+  <Accordion title="Appreciations by department">
+    A bar chart showing how many appreciation records each department received. Useful for identifying which teams are generating the most positive guest feedback.
+  </Accordion>
+  <Accordion title="Priority distribution">
+    A pie chart breaking down all complaint tickets by priority level (High, Medium, Low). A heavy High slice may indicate recurring critical infrastructure issues.
+  </Accordion>
+  <Accordion title="Ticket status overview">
+    A pie chart showing the share of tickets in each status across the full filtered dataset. Provides an instant view of overall complaint resolution health.
+  </Accordion>
+  <Accordion title="Monthly analytics">
+    A time-series view showing ticket volume trends over the selected period, rendered by the `MonthlyAnalytics` component.
+  </Accordion>
+  <Accordion title="Recurring issues">
+    The `RecurringIssues` component clusters complaint text to surface issues that appear multiple times. Recurring issues signal systemic problems that a single-ticket response will not solve.
+  </Accordion>
+</AccordionGroup>
+
+## Ticket statuses tracked
+
+All four ticket statuses are tracked and charted independently:
+
+| Status | Chart color |
+|--------|-------------|
+| **Active** | Sage green |
+| **Pending** | Khaki |
+| **Resolved** | Olive |
+| **Extended** | Clay |
+
+Statuses are computed dynamically from each ticket's `deadline` and `resolved_at` fields at query time. The charts always reflect the current state without requiring a manual refresh.
+
+## Date range filtering
+
+A three-option tab control above the charts filters all data simultaneously:
+
+<Tabs>
+  <Tab title="This Month">
+    Shows tickets and appreciations with a `created_at` timestamp falling within the current calendar month. This is the default view when you open the Analytics page.
+  </Tab>
+  <Tab title="Last Month">
+    Shows tickets and appreciations from the previous calendar month. Use this for month-over-month comparisons.
+  </Tab>
+  <Tab title="All Time">
+    Shows every ticket and appreciation ever uploaded under this admin account, with no date restriction.
+  </Tab>
+</Tabs>
+
+The date filter applies to both complaints and appreciations equally. The summary cards, all charts, and the department performance panel all update together when the range changes.
+
+## Admin-scoped data
+
+Every query in the analytics page includes an `eq('uploaded_by_admin_id', user.id)` filter. This means:
+
+- Administrators see **only their own hotel's data**.
+- Staff members from the same property who log in with a `department_staff` role do not have access to the Analytics page at all.
+- Data from other hotel accounts managed by other admins is never mixed in, regardless of shared department names.
+
+<Note>
+  If you have not yet uploaded any complaint or appreciation CSV data, the Analytics page shows an empty state message. Charts appear as soon as the first batch of reviews is processed.
+</Note>
+
+## Dark mode support
+
+The dashboard detects the user's system colour preference and switches to a dark palette automatically. Chart colours are defined as design tokens so that all Recharts components — bar fills, pie segments, grid lines, and axis labels — respond consistently to theme changes without any additional configuration by the user.
+
+## Charts powered by Recharts
+
+All visualisations use the [Recharts](https://recharts.org) library. Chart types in use:
+
+| Chart type | Used for |
+|------------|----------|
+| `BarChart` | Department ticket health, appreciations by department |
+| `PieChart` | Priority distribution, ticket status overview |
+| `ResponsiveContainer` | Wraps all charts so they resize fluidly with the browser window |
+
+<CardGroup cols={2}>
+  <Card title="Complaint classification" icon="brain" href="/features/complaint-classification">
+    Understand how tickets are created and prioritised before they reach analytics.
+  </Card>
+  <Card title="Department routing" icon="arrow-right" href="/features/department-routing">
+    See how ticket statuses are assigned and how deadlines are computed.
+  </Card>
+</CardGroup>

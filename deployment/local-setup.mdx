@@ -1,0 +1,243 @@
+---
+title: "Run HCIMS AI locally: frontend and backend setup guide"
+description: "Clone the monorepo, configure Supabase and Sarvam env vars, install dependencies, and run the FastAPI backend and Vite dev server locally."
+---
+
+HCIMS AI runs as two cooperating processes: a React + Vite frontend served on port 8080 and a FastAPI backend served on port 8001. Both need their own `.env` file populated before you start. The steps below walk you through everything from cloning to opening the app in your browser.
+
+## Prerequisites
+
+<CardGroup cols={2}>
+  <Card title="Node.js 18+" icon="node-js" href="https://nodejs.org">
+    Required to install frontend dependencies and run Vite dev server via `npm`.
+  </Card>
+  <Card title="Python 3.10+" icon="python" href="https://python.org">
+    Required to create a virtual environment and run the FastAPI backend with Uvicorn.
+  </Card>
+  <Card title="Git" icon="code-branch" href="https://git-scm.com">
+    Required to clone the repository to your local machine.
+  </Card>
+  <Card title="Supabase account" icon="database" href="https://supabase.com">
+    Provides authentication, Postgres with RLS, and storage for proof images.
+  </Card>
+</CardGroup>
+
+You also need a **Sarvam AI API key** for the translation and multilingual voice-input features. Obtain one from the Sarvam developer portal before filling in the backend `.env`.
+
+---
+
+## Setup steps
+
+<Steps>
+  <Step title="Clone the repository">
+    ```bash
+    git clone https://github.com/Yashviit886/ML-temp.git
+    cd ML-temp
+    ```
+
+    The monorepo root contains two application directories:
+
+    - `hcims-ai-main/` — React + Vite frontend
+    - `HCIMS-AI-Complaint-System-main/` — FastAPI backend and ML pipeline
+  </Step>
+
+  <Step title="Configure the frontend environment">
+    Copy the example file and fill in your Supabase project details.
+
+    <CodeGroup>
+
+    ```bash macOS / Linux
+    cp hcims-ai-main/.env.example hcims-ai-main/.env
+    ```
+
+    ```powershell Windows
+    copy hcims-ai-main\.env.example hcims-ai-main\.env
+    ```
+
+    </CodeGroup>
+
+    Open `hcims-ai-main/.env` and set each value:
+
+    ```env hcims-ai-main/.env
+    VITE_SUPABASE_PROJECT_ID=your-project-id
+    VITE_SUPABASE_PUBLISHABLE_KEY=your-anon-public-key
+    VITE_SUPABASE_URL=https://your-project-id.supabase.co
+    VITE_API_URL=http://localhost:8001
+    ```
+
+    `VITE_API_URL` points to the local backend. Leave it as `http://localhost:8001` for development.
+  </Step>
+
+  <Step title="Configure the backend environment">
+    Copy the example file and fill in your Supabase service-role key and Sarvam API key.
+
+    <CodeGroup>
+
+    ```bash macOS / Linux
+    cp HCIMS-AI-Complaint-System-main/.env.example HCIMS-AI-Complaint-System-main/.env
+    ```
+
+    ```powershell Windows
+    copy HCIMS-AI-Complaint-System-main\.env.example HCIMS-AI-Complaint-System-main\.env
+    ```
+
+    </CodeGroup>
+
+    Open `HCIMS-AI-Complaint-System-main/.env` and set each value:
+
+    ```env HCIMS-AI-Complaint-System-main/.env
+    SUPABASE_URL=https://your-project-id.supabase.co
+    SUPABASE_SERVICE_ROLE_KEY=your-service-role-secret-key
+    SARVAM_API_KEY=your-sarvam-api-key
+    NONESCAPE_MODEL_PATH=artifacts/nonescape-mini-v0.safetensors
+    AI_IMAGE_CONFIDENCE_THRESHOLD=0.45
+    PROOF_IMAGE_MAX_BYTES=10485760
+    ```
+
+    <Warning>
+      `SUPABASE_SERVICE_ROLE_KEY` has admin-level database access. Never expose it in the frontend or commit it to Git.
+    </Warning>
+
+    `NONESCAPE_MODEL_PATH`, `AI_IMAGE_CONFIDENCE_THRESHOLD`, and `PROOF_IMAGE_MAX_BYTES` can be left at their defaults unless you have custom model artifacts.
+  </Step>
+
+  <Step title="Install frontend dependencies">
+    ```bash
+    cd hcims-ai-main
+    npm install
+    ```
+
+    This installs React 18, Vite, Tailwind CSS, shadcn/ui, Recharts, Supabase JS client, and all other frontend packages listed in `package.json`.
+  </Step>
+
+  <Step title="Install backend dependencies">
+    Create a Python virtual environment, activate it, then install packages from `requirements.txt`.
+
+    <CodeGroup>
+
+    ```bash macOS / Linux
+    cd ../HCIMS-AI-Complaint-System-main
+    python -m venv venv
+    source venv/bin/activate
+    pip install -r requirements.txt
+    ```
+
+    ```powershell Windows
+    cd ..\HCIMS-AI-Complaint-System-main
+    python -m venv venv
+    venv\Scripts\activate
+    pip install -r requirements.txt
+    ```
+
+    </CodeGroup>
+
+    Key packages installed include `fastapi`, `uvicorn`, `scikit-learn`, `sentence-transformers`, `transformers`, `torch`, `httpx`, `python-dotenv`, and `Pillow`.
+
+    <Note>
+      `torch` and `sentence-transformers` are large packages. The first install may take several minutes depending on your connection speed.
+    </Note>
+  </Step>
+
+  <Step title="Start the backend">
+    From inside `HCIMS-AI-Complaint-System-main/` with the virtual environment active:
+
+    ```bash
+    uvicorn api:app --host 0.0.0.0 --port 8001
+    ```
+
+    The API will be available at `http://localhost:8001`. Interactive API documentation (Swagger UI) is at `http://localhost:8001/docs`.
+  </Step>
+
+  <Step title="Start the frontend">
+    Open a second terminal, navigate to `hcims-ai-main/`, and run:
+
+    ```bash
+    npm run dev -- --host 0.0.0.0 --port 8080
+    ```
+
+    Vite starts a hot-reloading dev server. The `--host 0.0.0.0` flag makes the frontend reachable from other devices on your network.
+  </Step>
+
+  <Step title="Open the app">
+    Navigate to `http://localhost:8080` in your browser. Sign in as an admin to begin the demo flow.
+
+    <Tip>
+      The Swagger UI at `http://localhost:8001/docs` lets you test individual API endpoints (prediction, translation, proof resolution) without the frontend.
+    </Tip>
+  </Step>
+</Steps>
+
+---
+
+## PowerShell helper: start.ps1
+
+The repository includes a `start.ps1` script at the monorepo root that automates steps 6 and 7 on Windows. It:
+
+1. **Checks for ML artifacts** — looks for `HCIMS-AI-Complaint-System-main/artifacts/df.pkl`. If the file is missing, it runs `src/train_model.py` to train and serialize the model before continuing.
+2. **Launches the backend** — starts Uvicorn in a separate background process on port 8001.
+3. **Waits 5 seconds**, then launches the Vite dev server (`npm run dev`) on port 5173 in another background process.
+4. **Prints service URLs** — frontend at `http://localhost:5173`, ML API at `http://localhost:8001`, and API docs at `http://localhost:8001/docs`.
+5. **Cleans up on exit** — pressing `Ctrl+C` stops both background processes.
+
+```powershell
+# From the monorepo root
+.\start.ps1
+```
+
+<Note>
+  `start.ps1` hard-codes the Python path to a specific Windows user installation. If your Python is installed elsewhere, edit the `-FilePath` arguments in the script or run the backend and frontend manually using the steps above.
+</Note>
+
+---
+
+## Useful scripts
+
+### Frontend (run from `hcims-ai-main/`)
+
+| Command | Description |
+|---|---|
+| `npm run dev` | Start Vite dev server with hot module replacement |
+| `npm run build` | Compile TypeScript and bundle for production into `dist/` |
+| `npm test` | Run the Vitest test suite once |
+| `npm run test:watch` | Run Vitest in watch mode |
+| `npm run lint` | Lint the codebase with ESLint |
+| `npm run preview` | Preview the production build locally |
+
+### Backend (from `HCIMS-AI-Complaint-System-main/` with venv active)
+
+| Command | Description |
+|---|---|
+| `uvicorn api:app --host 0.0.0.0 --port 8001` | Start production-style server |
+| `uvicorn api:app --reload` | Start with auto-reload on code changes |
+
+---
+
+## Supabase database migrations
+
+Your Supabase project needs the correct table schema and RLS policies before the app works. Apply migrations using the Supabase CLI:
+
+```bash
+# From hcims-ai-main/ (where supabase/ folder lives)
+supabase db push
+```
+
+If you are not using the Supabase CLI, log in to your Supabase project dashboard, open the **SQL editor**, and run the migration files found in `hcims-ai-main/supabase/migrations/` in order.
+
+<Info>
+  RLS policies are critical for data isolation between hotel admin accounts. Confirm they are enabled on every table before inviting staff users.
+</Info>
+
+---
+
+## ML model artifacts
+
+The backend requires trained model artifacts in `HCIMS-AI-Complaint-System-main/artifacts/` to serve predictions. If those files are absent:
+
+- Run `start.ps1` on Windows — it trains the model automatically on first launch.
+- Or manually run `python src/train_model.py` from inside `HCIMS-AI-Complaint-System-main/` with the venv active.
+
+The Nonescape proof-validation model (`nonescape-mini-v0.safetensors`) must be placed at the path specified by `NONESCAPE_MODEL_PATH` in your backend `.env`. Download the weights from the Nonescape model registry and place the file at `HCIMS-AI-Complaint-System-main/artifacts/nonescape-mini-v0.safetensors`.
+
+<Tip>
+  Model weight files are large binary files. Add `artifacts/*.safetensors` and `artifacts/*.pkl` to your `.gitignore` to avoid accidentally committing them to the repository.
+</Tip>

@@ -1,0 +1,186 @@
+---
+title: "Classify reviews with the prediction API"
+description: "Use the HCIMS prediction endpoints to classify hotel reviews as complaints or appreciation, routing each to a department with a priority level."
+---
+
+The prediction API accepts raw guest review text and returns structured classification results from the HCIMS machine learning model. Each review is categorised as either a complaint or appreciation, assigned to a responsible department, and given a priority level. No authentication is required on these endpoints.
+
+---
+
+## POST /predict
+
+Classify a single hotel review.
+
+<ParamField body="review" type="string" required>
+  The raw guest review text to classify. Cannot be empty or whitespace-only.
+</ParamField>
+
+### Complaint response
+
+When the model identifies a complaint, the response includes routing and priority information:
+
+<ResponseField name="type" type="string" required>
+  Always `"complaint"` for complaint classifications.
+</ResponseField>
+<ResponseField name="issue_text" type="string" required>
+  A normalised description of the identified issue.
+</ResponseField>
+<ResponseField name="department" type="string" required>
+  The department responsible for resolving the issue, e.g. `"Housekeeping"`, `"F&B"`, `"Front Desk"`.
+</ResponseField>
+<ResponseField name="priority" type="string" required>
+  One of `"High"`, `"Medium"`, or `"Low"`.
+</ResponseField>
+<ResponseField name="confidence" type="number" required>
+  Model confidence score between `0` and `1`.
+</ResponseField>
+
+### Appreciation response
+
+When the model identifies positive feedback, the response shape is different from the complaint response — there is no `issue_text` or `priority` field:
+
+<ResponseField name="type" type="string" required>
+  Always `"appreciation"` for positive feedback.
+</ResponseField>
+<ResponseField name="department" type="string" required>
+  The department credited with the positive feedback, inferred from the closest appreciation reference sentence.
+</ResponseField>
+<ResponseField name="confidence" type="number" required>
+  Adjusted cosine similarity score (0–1) against the appreciation reference set, plus any India-specific pattern boost.
+</ResponseField>
+<ResponseField name="matched_reference" type="string" required>
+  The curated reference sentence that most closely matched the submitted review. Used to determine the credited department.
+</ResponseField>
+
+<Note>
+  A `"Low"` priority is appended to the appreciation result by `api.py` before returning, but it is not part of the core prediction. The `priority` field appears in the batch endpoint response for appreciations but not in single-review responses.
+</Note>
+
+<CodeGroup>
+
+```bash Complaint example
+curl --request POST \
+  --url http://localhost:8001/predict \
+  --header 'Content-Type: application/json' \
+  --data '{"review": "The room was dirty and the towels smelled bad."}'
+```
+
+```bash Appreciation example
+curl --request POST \
+  --url http://localhost:8001/predict \
+  --header 'Content-Type: application/json' \
+  --data '{"review": "The staff at the front desk were incredibly helpful and friendly."}'
+```
+
+</CodeGroup>
+
+<CodeGroup>
+
+```json Complaint response
+{
+  "type": "complaint",
+  "issue_text": "dirty room and unclean towels",
+  "department": "Housekeeping",
+  "priority": "High",
+  "confidence": 0.94
+}
+```
+
+```json Appreciation response
+{
+  "type": "appreciation",
+  "department": "Front Office",
+  "confidence": 0.6821,
+  "matched_reference": "The front desk staff were welcoming, polite, and very helpful.",
+  "priority": "Low"
+}
+```
+
+</CodeGroup>
+
+### Errors
+
+| Status | Detail |
+|---|---|
+| `400` | `"Review text cannot be empty"` — the `review` field is blank or whitespace |
+
+---
+
+## POST /predict_batch
+
+Classify a list of reviews in a single request. Blank strings within the list are silently skipped. Useful for processing CSV uploads.
+
+<ParamField body="reviews" type="string[]" required>
+  Array of review strings to classify. The list itself cannot be empty, but individual blank entries are ignored.
+</ParamField>
+
+### Response
+
+Returns an array of objects — one per non-blank review — in the same order as the input.
+
+<ResponseField name="[].review_text" type="string" required>
+  The original review string from the input array.
+</ResponseField>
+<ResponseField name="[].type" type="string" required>
+  `"complaint"` or `"appreciation"`.
+</ResponseField>
+<ResponseField name="[].issue_text" type="string" required>
+  Normalised description of the identified issue or subject of appreciation.
+</ResponseField>
+<ResponseField name="[].department" type="string" required>
+  Department responsible for or associated with this review.
+</ResponseField>
+<ResponseField name="[].priority" type="string" required>
+  `"High"`, `"Medium"`, or `"Low"`.
+</ResponseField>
+<ResponseField name="[].confidence" type="number" required>
+  Model confidence score between `0` and `1`.
+</ResponseField>
+
+```bash cURL
+curl --request POST \
+  --url http://localhost:8001/predict_batch \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "reviews": [
+      "The pool water was green and clearly not cleaned.",
+      "Breakfast was absolutely delicious, best I have had at a hotel.",
+      "Air conditioning in room 204 was broken for two nights."
+    ]
+  }'
+```
+
+```json Response
+[
+  {
+    "review_text": "The pool water was green and clearly not cleaned.",
+    "type": "complaint",
+    "issue_text": "unclean pool water",
+    "department": "Maintenance",
+    "priority": "High",
+    "confidence": 0.91
+  },
+  {
+    "review_text": "Breakfast was absolutely delicious, best I have had at a hotel.",
+    "type": "appreciation",
+    "issue_text": "excellent breakfast quality",
+    "department": "F&B",
+    "priority": "Low",
+    "confidence": 0.86
+  },
+  {
+    "review_text": "Air conditioning in room 204 was broken for two nights.",
+    "type": "complaint",
+    "issue_text": "broken air conditioning",
+    "department": "Maintenance",
+    "priority": "High",
+    "confidence": 0.97
+  }
+]
+```
+
+### Errors
+
+| Status | Detail |
+|---|---|
+| `400` | `"Reviews list cannot be empty"` — the `reviews` array has zero elements |

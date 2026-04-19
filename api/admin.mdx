@@ -1,0 +1,213 @@
+---
+title: "Manage staff accounts with the Admin API"
+description: "Create, update, and delete department staff Supabase accounts from your HCIMS admin session, using the service role key to bypass email confirmation."
+---
+
+The Admin API allows hotel administrators to provision and manage department staff accounts directly from the HCIMS dashboard. All three endpoints require an active admin session — requests are authenticated via a Supabase Bearer token, and the caller's `role` in the `profiles` table must be `admin`. The backend uses the Supabase service role key to create and delete auth users server-side, bypassing email confirmation.
+
+<Warning>
+  All admin endpoints return `503` if `SUPABASE_SERVICE_ROLE_KEY` is not configured in the server's environment. Ensure this variable is set before using any of the endpoints below.
+</Warning>
+
+---
+
+## POST /create_staff
+
+Create a new department staff account. The account is immediately active — no email confirmation is required.
+
+### Request headers
+
+<ParamField header="Authorization" type="string" required>
+  `Bearer <supabase_access_token>` — must belong to an admin-role user.
+</ParamField>
+
+### Request body
+
+<ParamField body="email" type="string" required>
+  Email address for the new staff account. Must be unique within your Supabase project.
+</ParamField>
+<ParamField body="password" type="string" required>
+  Initial password for the new account.
+</ParamField>
+<ParamField body="full_name" type="string" required>
+  Display name stored in the staff member's profile.
+</ParamField>
+<ParamField body="department" type="string" required>
+  Department the staff member belongs to, e.g. `"Housekeeping"`, `"F&B"`, `"Maintenance"`.
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean" required>
+  `true` when the account was created successfully.
+</ResponseField>
+<ResponseField name="user_id" type="string" required>
+  Supabase UUID of the newly created user.
+</ResponseField>
+<ResponseField name="email" type="string" required>
+  Email address of the created account, echoed from the request.
+</ResponseField>
+<ResponseField name="department" type="string" required>
+  Department assigned to the account, echoed from the request.
+</ResponseField>
+<ResponseField name="message" type="string" required>
+  Human-readable confirmation message.
+</ResponseField>
+
+```bash cURL
+curl --request POST \
+  --url http://localhost:8001/create_staff \
+  --header 'Authorization: Bearer <supabase_access_token>' \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "email": "priya.sharma@hotel.com",
+    "password": "SecurePass123!",
+    "full_name": "Priya Sharma",
+    "department": "Housekeeping"
+  }'
+```
+
+```json Response
+{
+  "success": true,
+  "user_id": "d4e5f6a7-b8c9-0123-def0-456789abcdef",
+  "email": "priya.sharma@hotel.com",
+  "department": "Housekeeping",
+  "message": "Staff account created for Housekeeping. They can now log in."
+}
+```
+
+### Errors
+
+| Status | Detail |
+|---|---|
+| `401` | Missing or expired Supabase access token |
+| `403` | Authenticated user is not an admin |
+| `503` | `SUPABASE_SERVICE_ROLE_KEY` not configured on the server |
+
+---
+
+## PUT /update_staff
+
+Update a staff member's credentials or profile. Only fields included in the request body are changed — all others are left untouched.
+
+<Note>
+  Changing a staff member's `department` updates their profile record only. Existing complaint tickets linked to the old department name are **not** reassigned.
+</Note>
+
+### Request headers
+
+<ParamField header="Authorization" type="string" required>
+  `Bearer <supabase_access_token>` — must belong to an admin-role user who originally created this staff account.
+</ParamField>
+
+### Request body
+
+<ParamField body="user_id" type="string" required>
+  Supabase UUID of the staff account to update.
+</ParamField>
+<ParamField body="full_name" type="string">
+  New display name for the staff member.
+</ParamField>
+<ParamField body="email" type="string">
+  New email address. Must be unique within the Supabase project.
+</ParamField>
+<ParamField body="password" type="string">
+  New password for the account.
+</ParamField>
+<ParamField body="department" type="string">
+  New department assignment. Does not affect existing tickets.
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean" required>
+  `true` when the update completed without errors.
+</ResponseField>
+<ResponseField name="message" type="string" required>
+  Always `"Credentials updated. Ticket data is untouched."`.
+</ResponseField>
+
+```bash cURL
+curl --request PUT \
+  --url http://localhost:8001/update_staff \
+  --header 'Authorization: Bearer <supabase_access_token>' \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "user_id": "d4e5f6a7-b8c9-0123-def0-456789abcdef",
+    "department": "F&B"
+  }'
+```
+
+```json Response
+{
+  "success": true,
+  "message": "Credentials updated. Ticket data is untouched."
+}
+```
+
+### Errors
+
+| Status | Detail |
+|---|---|
+| `401` | Missing or expired Supabase access token |
+| `403` | Authenticated user is not an admin, or does not own this staff account |
+| `404` | Staff account with the given `user_id` was not found |
+| `503` | `SUPABASE_SERVICE_ROLE_KEY` not configured on the server |
+
+---
+
+## DELETE /delete_staff
+
+Delete a staff account from Supabase Auth. The staff member's complaint tickets and activity records remain in the database under their department name.
+
+<Warning>
+  This action is irreversible. The staff member will immediately lose access to the HCIMS dashboard. Their historical ticket and activity data is preserved.
+</Warning>
+
+### Request headers
+
+<ParamField header="Authorization" type="string" required>
+  `Bearer <supabase_access_token>` — must belong to an admin-role user who originally created this staff account.
+</ParamField>
+
+### Request body
+
+<ParamField body="user_id" type="string" required>
+  Supabase UUID of the staff account to delete.
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean" required>
+  `true` when the account was deleted successfully.
+</ResponseField>
+<ResponseField name="message" type="string" required>
+  Always `"Account deleted. Department tickets remain intact."`.
+</ResponseField>
+
+```bash cURL
+curl --request DELETE \
+  --url http://localhost:8001/delete_staff \
+  --header 'Authorization: Bearer <supabase_access_token>' \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "user_id": "d4e5f6a7-b8c9-0123-def0-456789abcdef"
+  }'
+```
+
+```json Response
+{
+  "success": true,
+  "message": "Account deleted. Department tickets remain intact."
+}
+```
+
+### Errors
+
+| Status | Detail |
+|---|---|
+| `401` | Missing or expired Supabase access token |
+| `403` | Authenticated user is not an admin, or does not own this staff account |
+| `404` | Staff account with the given `user_id` was not found |
+| `503` | `SUPABASE_SERVICE_ROLE_KEY` not configured on the server |

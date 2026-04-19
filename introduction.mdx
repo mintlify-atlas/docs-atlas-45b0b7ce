@@ -1,0 +1,72 @@
+---
+title: "HCIMS AI: AI-Powered Hotel Complaint Management"
+description: "Learn how HCIMS AI eliminates manual triage, auto-routes complaints to the right department, validates proof images, and supports multilingual hotel staff."
+---
+
+This page introduces HCIMS AI — what it is, the operational problems it solves, how its technology is structured, and the two roles that interact with the system. If you are evaluating the platform or onboarding a new team member, start here.
+
+## What is HCIMS AI?
+
+HCIMS AI is an AI-powered hotel complaint intelligence management system. It ingests raw guest reviews from a CSV upload, automatically separates complaints from appreciations, assigns each complaint a priority and a responsible department, and creates a trackable ticket — without any manual triage by hotel staff.
+
+Department staff receive only the tickets assigned to their team. When a ticket is resolved, staff upload a photo as proof. The system verifies that the proof image is genuine before marking the ticket closed. Admins see the full picture: every ticket, every department, and analytics spanning any date range.
+
+## Problems HCIMS AI solves
+
+**Manual complaint triage.** Reading through hundreds of guest reviews to separate actionable complaints from positive feedback is time-consuming and inconsistent. HCIMS AI classifies every review automatically using sentence-embedding similarity so your team focuses on resolution rather than sorting.
+
+**Mis-routing.** Complaints sent to the wrong department delay resolution and frustrate guests. The ML pipeline assigns each ticket to Housekeeping, Food & Beverage, Engineering & Maintenance, IT Support, or Front Office based on review content — not manual judgment.
+
+**Fake proof images.** Staff could upload AI-generated or recycled images to close tickets without actually resolving them. The Nonescape AI model analyzes every proof upload and rejects images it identifies as synthetically generated.
+
+**Language barriers.** Hotel staff and guests may not share a common language. Sarvam AI provides UI translation and voice input in 22+ Indian languages, so staff can interact with the system in their preferred language.
+
+## Technology overview
+
+HCIMS AI is a monorepo with a React frontend and a FastAPI backend. The two services communicate over HTTP and share a Supabase project for authentication, data, and file storage.
+
+**Frontend** — `hcims-ai-main/`
+
+| Layer | Technology |
+|---|---|
+| Framework | React 18 + TypeScript |
+| Build tool | Vite |
+| Styling | Tailwind CSS + shadcn/ui |
+| Data fetching | TanStack Query |
+| Charts | Recharts |
+| Auth + DB client | Supabase JS |
+
+**Backend** — `HCIMS-AI-Complaint-System-main/`
+
+| Layer | Technology |
+|---|---|
+| API server | FastAPI + Uvicorn |
+| ML embeddings | sentence-transformers |
+| ML model | scikit-learn (KMeans) |
+| Deep learning runtime | PyTorch |
+| Translation + STT | Sarvam AI |
+| Proof validation | Nonescape |
+| Experiment tracking | MLflow + DVC |
+
+**Platform**
+
+Supabase provides PostgreSQL with row-level security (RLS), Auth with JWT sessions, and Storage for proof images. No separate database server is required.
+
+## User roles
+
+HCIMS AI has two roles. Access is enforced at the Supabase RLS layer, so each role sees only the data it is permitted to read or write.
+
+**Admin.** Admins can upload guest review CSVs, view all generated tickets regardless of department, create and manage department staff accounts, review appreciations, access the full analytics dashboard, and read activity logs and notifications.
+
+**Department staff.** Staff members see only the tickets assigned to their department. They can update ticket status and upload proof images to mark a ticket as resolved. They cannot access other departments' tickets, analytics, or staff management screens.
+
+## Where to go next
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Get the frontend and backend running locally in under 15 minutes
+  </Card>
+  <Card title="Architecture" icon="diagram-project" href="/architecture">
+    See how the AI pipeline, Supabase database, and UI fit together
+  </Card>
+</CardGroup>

@@ -1,0 +1,105 @@
+---
+title: 'Environment Variables for HCIMS AI Configuration'
+description: 'Complete reference for all HCIMS AI environment variables — frontend Vite settings, Supabase credentials, AI model config, and image validation limits.'
+---
+
+HCIMS AI is split into two runtimes: a Vite-powered frontend and a Python backend service. Each requires its own set of environment variables. Copy the appropriate `.env.example` file in each directory, rename it to `.env`, and fill in the values before starting either service.
+
+<Warning>
+  Never commit `.env` files to version control. Both repositories include `.env` in `.gitignore`, but double-check this before pushing. Exposing your `SUPABASE_SERVICE_ROLE_KEY` or `SARVAM_API_KEY` grants full database and API access.
+</Warning>
+
+## Frontend variables
+
+The frontend lives in the `hcims-ai-main/` directory. All variables must be prefixed with `VITE_` so that Vite exposes them to the browser bundle at build time.
+
+<CodeGroup>
+
+```env hcims-ai-main/.env
+VITE_SUPABASE_PROJECT_ID=your-project-id
+VITE_SUPABASE_PUBLISHABLE_KEY=your-anon-key
+VITE_SUPABASE_URL=https://your-project-id.supabase.co
+VITE_API_URL=http://localhost:8001
+```
+
+</CodeGroup>
+
+<ParamField path="VITE_SUPABASE_PROJECT_ID" type="string" required>
+  The unique identifier for your Supabase project. Found in the Supabase dashboard under **Project Settings → General → Reference ID**. This is the alphanumeric slug that also appears in your project URL (e.g., `huwdpsxqqmwdilmxncmw`).
+</ParamField>
+
+<ParamField path="VITE_SUPABASE_PUBLISHABLE_KEY" type="string" required>
+  The `anon` public key for your Supabase project, safe to expose in the browser. Found in **Project Settings → API → Project API keys → anon / public**. This key is governed by Row Level Security policies and cannot bypass them.
+</ParamField>
+
+<ParamField path="VITE_SUPABASE_URL" type="string" required>
+  The full HTTPS URL of your Supabase project's REST and Auth endpoints. Found in **Project Settings → API → Project URL**. Format: `https://<project-id>.supabase.co`.
+</ParamField>
+
+<ParamField path="VITE_API_URL" type="string" default="http://localhost:8001">
+  Base URL of the HCIMS AI backend service. In local development this is `http://localhost:8001`. For production deployments, replace with the public URL of your deployed backend container or server.
+</ParamField>
+
+---
+
+## Backend variables
+
+The backend lives in the `HCIMS-AI-Complaint-System-main/` directory. These variables are read server-side only and must never be exposed to the browser.
+
+<CodeGroup>
+
+```env HCIMS-AI-Complaint-System-main/.env
+SUPABASE_URL=https://your-project-id.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+SARVAM_API_KEY=your-sarvam-api-key
+NONESCAPE_MODEL_PATH=artifacts/nonescape-mini-v0.safetensors
+AI_IMAGE_CONFIDENCE_THRESHOLD=0.45
+PROOF_IMAGE_MAX_BYTES=10485760
+```
+
+</CodeGroup>
+
+<ParamField path="SUPABASE_URL" type="string" required>
+  The same project URL used on the frontend. Found in **Project Settings → API → Project URL**. The backend uses this to reach Supabase's REST API directly, bypassing the browser client.
+</ParamField>
+
+<ParamField path="SUPABASE_SERVICE_ROLE_KEY" type="string" required>
+  The `service_role` secret key for your Supabase project. Found in **Project Settings → API → Project API keys → service_role**. This key bypasses all Row Level Security policies and must be kept strictly server-side. Rotate it immediately if it is ever exposed.
+</ParamField>
+
+<ParamField path="SARVAM_API_KEY" type="string" required>
+  API key for the [Sarvam AI](https://www.sarvam.ai/) language model service used to process and classify complaint text. Obtain this key from your Sarvam AI dashboard after creating an account.
+</ParamField>
+
+<ParamField path="NONESCAPE_MODEL_PATH" type="string" default="artifacts/nonescape-mini-v0.safetensors">
+  Relative path (from the backend working directory) to the NonEscape mini model weights file used for proof-image AI classification. The default path assumes the `.safetensors` artifact is placed inside an `artifacts/` folder at the project root.
+</ParamField>
+
+<ParamField path="AI_IMAGE_CONFIDENCE_THRESHOLD" type="number" default="0.45">
+  Confidence threshold (0.0–1.0) for the Nonescape synthetic image detector. A proof upload is blocked when `synthetic_confidence >= threshold` or when `synthetic_confidence > authentic_confidence`. The default `0.45` is calibrated to block clearly synthetic images and suspicious borderline cases without triggering false positives on real hotel photographs. Raise this value to reduce false positives; lower it to increase sensitivity.
+</ParamField>
+
+<ParamField path="PROOF_IMAGE_MAX_BYTES" type="number" default="10485760">
+  Maximum allowed file size for proof images uploaded with a complaint resolution, in bytes. The default value of `10485760` equals 10 MB. Adjust this if your storage quota or upload infrastructure enforces different limits.
+</ParamField>
+
+---
+
+## Quick reference
+
+| Variable | Runtime | Required | Default |
+|---|---|---|---|
+| `VITE_SUPABASE_PROJECT_ID` | Frontend | Yes | — |
+| `VITE_SUPABASE_PUBLISHABLE_KEY` | Frontend | Yes | — |
+| `VITE_SUPABASE_URL` | Frontend | Yes | — |
+| `VITE_API_URL` | Frontend | Yes | `http://localhost:8001` |
+| `SUPABASE_URL` | Backend | Yes | — |
+| `SUPABASE_SERVICE_ROLE_KEY` | Backend | Yes | — |
+| `SARVAM_API_KEY` | Backend | Yes | — |
+| `NONESCAPE_MODEL_PATH` | Backend | No | `artifacts/nonescape-mini-v0.safetensors` |
+| `AI_IMAGE_CONFIDENCE_THRESHOLD` | Backend | No | `0.45` |
+| `PROOF_IMAGE_MAX_BYTES` | Backend | No | `10485760` |
+
+<Tip>
+  Both `.env.example` files are committed to the repository as templates. Running `cp .env.example .env` in each directory gives you the correct structure to fill in.
+</Tip>

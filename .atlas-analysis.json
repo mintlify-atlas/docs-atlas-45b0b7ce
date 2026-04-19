@@ -1,23 +1,11 @@
 {
-  "$schema": "https://mintlify.com/docs.json",
-  "name": "HCIMS AI",
+  "projectType": "saas",
+  "projectName": "HCIMS AI",
+  "projectDescription": "An AI-powered hotel complaint intelligence management system that classifies guest reviews, routes tickets to departments, validates proof images, and provides operational analytics.",
   "theme": "luma",
-  "colors": {
-    "primary": "#2563EB",
-    "light": "#EFF6FF",
-    "dark": "#1E3A8A"
-  },
-  "navbar": {
-    "primary": {
-      "type": "github",
-      "href": "https://github.com/Yashviit886/ML-temp"
-    }
-  },
-  "footer": {
-    "socials": {
-      "github": "https://github.com/Yashviit886/ML-temp"
-    }
-  },
+  "primaryColor": "#2563EB",
+  "lightColor": "#EFF6FF",
+  "darkColor": "#1E3A8A",
   "navigation": {
     "tabs": [
       {
@@ -94,5 +82,29 @@
         ]
       }
     ]
-  }
+  },
+  "keyFeatures": [
+    "AI-based complaint vs appreciation detection using sentence embeddings and cosine similarity",
+    "Automatic department routing for Housekeeping, Engineering & Maintenance, Food & Beverage, IT Support, and Front Office",
+    "Priority assignment (High/Medium/Low) with ticket deadlines",
+    "AI-generated image detection for proof validation using the Nonescape model",
+    "Multilingual voice input and UI translation via Sarvam AI (22+ Indian languages)",
+    "Admin dashboard with CSV upload, ticket management, staff accounts, and analytics",
+    "Department staff dashboard for viewing and resolving assigned tickets with proof",
+    "Supabase authentication, row-level security, and storage",
+    "Dark mode support and date-filtered analytics with Recharts",
+    "MLflow and DVC integration for ML experiment tracking"
+  ],
+  "publicApiSurface": [
+    "GET / — Health check",
+    "GET /health — Health status",
+    "POST /predict — Single review classification",
+    "POST /predict_batch — Batch review classification from CSV",
+    "POST /create_staff — Admin: create department staff account",
+    "PUT /update_staff — Admin: update staff credentials",
+    "DELETE /delete_staff — Admin: delete staff account",
+    "POST /translate/texts — Translate text via Sarvam AI",
+    "POST /transcribe — Speech-to-text transcription",
+    "POST /complaints/{complaint_id}/resolve_with_proof — Resolve ticket with proof image"
+  ]
 }

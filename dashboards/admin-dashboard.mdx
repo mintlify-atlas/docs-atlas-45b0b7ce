@@ -1,0 +1,227 @@
+---
+title: 'Admin Dashboard: Hotel Complaint Intelligence Hub'
+description: 'Manage complaint tickets, upload guest reviews, oversee department staff, and track hotel performance — all from one secure admin workspace.'
+---
+
+The admin dashboard is the central control plane of HCIMS AI. Every complaint ticket your hotel receives, every staff account you create, and every analytics chart you review originates from here. When you sign in as an admin, this is where you land — a live overview of your hotel's complaint pipeline, scoped exclusively to data you have uploaded.
+
+## Sidebar navigation
+
+The collapsible sidebar on the left gives you access to every section of the admin workspace. It can be collapsed to icon-only mode to reclaim screen space.
+
+<CardGroup cols={2}>
+  <Card title="Dashboard" icon="layout-dashboard" href="/dashboards/admin-dashboard">
+    The home screen. Displays your five stat cards and the recent tickets table.
+  </Card>
+  <Card title="Upload Complaints" icon="upload" href="/features/complaint-classification">
+    Upload a guest review CSV or record a voice complaint to trigger AI classification.
+  </Card>
+  <Card title="Tickets" icon="ticket" href="/dashboards/admin-dashboard">
+    Full filterable table of every ticket uploaded under your admin account.
+  </Card>
+  <Card title="Appreciations" icon="heart" href="/features/complaint-classification">
+    Positive guest feedback separated from complaints, with keyword and trend charts.
+  </Card>
+  <Card title="Analytics" icon="chart-bar" href="/features/analytics">
+    Date-filtered charts: department health, priority distribution, monthly trends, and recurring issues.
+  </Card>
+  <Card title="Staff Accounts" icon="users" href="/dashboards/admin-dashboard">
+    Create, edit, delete, and share login credentials for department staff.
+  </Card>
+  <Card title="Activity Logs" icon="list" href="/dashboards/admin-dashboard">
+    Audit trail of uploads, resolutions, logins, and other system events.
+  </Card>
+</CardGroup>
+
+## Overview stats
+
+The top of the dashboard renders five stat cards computed in real time from your complaint data.
+
+| Stat | What it counts |
+|---|---|
+| **Total Tickets** | All complaints uploaded by your admin account |
+| **Active** | Tickets that are open and within their deadline |
+| **Pending** | Tickets awaiting action before the deadline has passed |
+| **Resolved** | Tickets marked resolved with verified proof |
+| **Extended** | Tickets whose deadline has passed without resolution |
+
+<Info>
+  These counts update immediately after every CSV upload or staff resolution — no page refresh needed.
+</Info>
+
+## Ticket statuses explained
+
+HCIMS AI computes ticket status dynamically based on the deadline and resolution state stored in the database. Status is never set manually by the admin.
+
+<AccordionGroup>
+  <Accordion title="Active" icon="clock">
+    The ticket has been classified and assigned to a department. The resolution deadline has not yet passed and the ticket has not been resolved. Staff in the relevant department can see and act on this ticket.
+  </Accordion>
+  <Accordion title="Pending" icon="triangle-alert">
+    The ticket is open and requires attention. This status signals that no resolution action has been taken yet, and the deadline is approaching or the ticket is flagged for follow-up.
+  </Accordion>
+  <Accordion title="Resolved" icon="circle-check">
+    A department staff member has submitted a proof photo and optional resolution notes. The proof image passed AI-generated content detection. The ticket is closed.
+  </Accordion>
+  <Accordion title="Extended" icon="calendar-clock">
+    The ticket's original deadline passed without a verified resolution. It remains open and visible to staff, but is flagged in red in the stats and on the tickets table.
+  </Accordion>
+</AccordionGroup>
+
+## Uploading guest reviews
+
+Guest reviews enter HCIMS AI through the **Upload Complaints** page. Two input methods are available.
+
+<Tabs>
+  <Tab title="CSV bulk upload">
+    Prepare a CSV file where each row contains a guest review. Upload the file on the Upload Complaints page. The AI classifier reads each review, determines whether it is a complaint or an appreciation, assigns a department (Housekeeping, Engineering & Maintenance, Food & Beverage, IT Support, or Front Office), and sets a priority level (High, Medium, or Low). Complaints become tickets; appreciations are routed to the Appreciations page.
+
+    After a successful upload, you are redirected to the Tickets page where newly created tickets are immediately visible.
+
+    <Note>
+      Only image files are accepted as proof later in the resolution workflow. The CSV upload itself accepts `.csv` files only.
+    </Note>
+  </Tab>
+  <Tab title="Voice complaint">
+    On the Upload Complaints page, use the voice input panel to speak a complaint in any supported Indian language. Sarvam AI transcribes and translates the spoken input before it is classified. This is useful for logging ad-hoc complaints from guests who speak in person.
+
+    See [multilingual support](/features/multilingual-support) for the full list of supported languages.
+  </Tab>
+</Tabs>
+
+## Tickets table
+
+The **Tickets** page shows every complaint ticket uploaded under your admin account in a searchable, filterable table.
+
+Each row displays:
+
+- **Complaint text** — the original review excerpt
+- **Department** — assigned by the classifier
+- **Priority** — High, Medium, or Low
+- **Status** — computed dynamically (Active, Pending, Resolved, Extended)
+- **Created date** — when the ticket entered the system
+- **Deadline** — the resolution due date
+
+**Filtering options** available from the toolbar:
+
+- Free-text search across complaint text
+- Department filter
+- Priority filter (High / Medium / Low)
+- Status filter (Active / Pending / Resolved / Extended)
+
+<Warning>
+  The **Clear All Tickets** button on the Tickets page permanently deletes every ticket uploaded by your admin account. This action cannot be undone. Tickets belonging to other admin accounts are not affected.
+</Warning>
+
+## Appreciations
+
+When the classifier identifies a review as positive feedback rather than a complaint, it is stored as an appreciation and is accessible from the **Appreciations** sidebar item.
+
+The Appreciations page shows:
+
+- **Total appreciations count**, most praised department, number of departments praised, and the top praise keyword
+- **Pie chart** — appreciations distributed by department
+- **Horizontal bar chart** — top keywords extracted from praise text (common stop-words are filtered out)
+- **Appreciation trend** — monthly bar chart for the past six months
+- **Recent guest praise feed** — the 30 most recent appreciation entries with department tags
+
+<Tip>
+  Use the appreciations view in team meetings to highlight which departments are performing well from a guest satisfaction perspective.
+</Tip>
+
+## Analytics
+
+The **Analytics** page provides date-filtered charts across all your complaint and appreciation data. See [Analytics](/features/analytics) for full documentation.
+
+A date-range selector at the top lets you switch between:
+
+- **This Month** — tickets and appreciations uploaded in the current calendar month
+- **Last Month** — the previous calendar month
+- **All Time** — every record under your admin account
+
+Charts available on the analytics page:
+
+- Summary KPI cards: Total Tickets, Open Now, Completed, On-Time Rate, Appreciations
+- Department Performance (complaints and appreciations side by side)
+- Monthly ticket trend
+- Recurring issues detected by the AI classifier
+- Department ticket health (stacked bar: Active / Pending / Resolved / Extended)
+- Appreciations by department
+- Priority distribution (pie chart)
+- Ticket status overview (pie chart)
+
+## Staff accounts
+
+The **Staff Accounts** page is where you provision login credentials for the department employees who will resolve tickets.
+
+### Supported departments
+
+Accounts can be created for any of the five built-in departments:
+
+- Housekeeping
+- Engineering & Maintenance
+- Food & Beverage
+- IT Support
+- Front Office
+
+### Creating a staff account
+
+<Steps>
+  <Step title="Open the create dialog">
+    Click **Add Department Staff** at the top-right of the Staff Accounts page, or click any department card that shows "Tap to create".
+  </Step>
+  <Step title="Fill in the details">
+    Enter the staff member's full name, select their department from the dropdown, provide an email address, and set a password. Use a simple, memorable password — you will share it via WhatsApp or SMS immediately after creation.
+  </Step>
+  <Step title="Create and share">
+    Click **Create & Share**. The account is created and a pre-formatted WhatsApp-ready message containing the login URL, email, and password is shown. Share it via WhatsApp, SMS, or copy it to clipboard.
+  </Step>
+</Steps>
+
+### Editing and deleting accounts
+
+- **Edit** — update the staff member's name, email, department, or password. Leave any field blank to keep the existing value. If you change the password, you will be prompted to reshare credentials.
+- **Delete** — removes the login account. All complaint tickets and data belonging to that department remain intact; only the login is removed.
+
+<Note>
+  Deleting a staff account does not delete or reassign any tickets. Department data is preserved under Supabase row-level security and remains visible on your admin dashboard.
+</Note>
+
+## Activity logs
+
+The **Activity Logs** page shows an audit trail of actions taken within your admin account — uploads, resolutions, sign-ins, and other system events. Logs are ordered newest-first and display up to 200 entries.
+
+Each log entry shows:
+
+- **Action** — a categorised label (upload, resolve, login) and a description
+- **User ID** — the first eight characters of the user UUID who performed the action
+- **Timestamp** — date and time formatted as `MMM d, yyyy HH:mm:ss`
+
+<Info>
+  Activity logs are scoped to your admin account. You will never see logs generated by another admin's account.
+</Info>
+
+## Data isolation
+
+HCIMS AI enforces strict data isolation at the database level using Supabase Row Level Security (RLS). Every complaint, appreciation, staff account, and activity log record is tagged with the uploading admin's user ID. Queries on the admin dashboard always include an `uploaded_by_admin_id = your_id` filter, meaning:
+
+- You only ever see data from your own uploads
+- Other admins cannot see your tickets, staff accounts, or logs
+- Staff members can only see tickets belonging to their own department and admin account
+
+## Related pages
+
+<CardGroup cols={2}>
+  <Card title="Analytics" icon="chart-bar" href="/features/analytics">
+    Deep dive into the date-filtered charts and department health metrics.
+  </Card>
+  <Card title="Complaint classification" icon="brain" href="/features/complaint-classification">
+    How the AI classifier assigns departments and priorities to uploaded reviews.
+  </Card>
+  <Card title="Department dashboard" icon="gauge" href="/dashboards/department-dashboard">
+    What department staff see when they log in to resolve tickets.
+  </Card>
+  <Card title="Proof validation" icon="shield-check" href="/features/proof-validation">
+    How HCIMS AI detects and blocks AI-generated proof images.
+  </Card>
+</CardGroup>

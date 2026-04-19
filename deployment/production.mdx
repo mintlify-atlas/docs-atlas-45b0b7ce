@@ -1,0 +1,302 @@
+---
+title: "Deploy HCIMS AI to production: backend, frontend, security"
+description: "Harden HCIMS AI for production by configuring CORS, locking admin signup, securing secrets, and deploying the FastAPI backend and React build."
+---
+
+HCIMS AI is production-capable for controlled pilots and demos out of the box, but several hardening steps are required before you expose it to real hotel staff and guest data. This page walks through every area you need to address: environment variables, backend deployment, frontend build and hosting, CORS, Supabase RLS, authentication controls, and Git hygiene.
+
+<Warning>
+  Do not launch HCIMS AI to the public internet without completing the checklist below. The default configuration is optimized for local development, not for multi-tenant production use.
+</Warning>
+
+---
+
+## Production readiness checklist
+
+Work through each item before going live. All seven points come directly from known gaps in the demo configuration.
+
+<Steps>
+  <Step title="Disable public admin self-signup">
+    By default, any user can register an admin account. Before going live, disable open admin self-registration in Supabase Auth settings, or rewrite the signup flow to require an invitation token.
+
+    In your Supabase project dashboard, go to **Authentication → Providers → Email** and disable **Enable sign-ups**, then provision admin accounts manually or through an invite-only flow.
+
+    <Check>Admin creation is invite-only or disabled for public self-registration.</Check>
+  </Step>
+
+  <Step title="Set VITE_API_URL to your production backend URL">
+    The frontend reads `VITE_API_URL` at build time. For production, set it to your deployed FastAPI backend URL before running `npm run build`.
+
+    ```env hcims-ai-main/.env (production build)
+    VITE_SUPABASE_PROJECT_ID=your-project-id
+    VITE_SUPABASE_PUBLISHABLE_KEY=your-anon-public-key
+    VITE_SUPABASE_URL=https://your-project-id.supabase.co
+    VITE_API_URL=https://api.yourdomain.com
+    ```
+
+    <Check>`VITE_API_URL` points to the production FastAPI host, not `localhost`.</Check>
+  </Step>
+
+  <Step title="Restrict backend CORS to your frontend domain">
+    The FastAPI backend in `api.py` uses `CORSMiddleware`. In development, `allow_origins` may be set to `["*"]`. For production, restrict it to your deployed frontend domain.
+
+    ```python api.py
+    from fastapi.middleware.cors import CORSMiddleware
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["https://app.yourdomain.com"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    ```
+
+    <Check>CORS `allow_origins` lists only your production frontend domain.</Check>
+  </Step>
+
+  <Step title="Require authentication on ML prediction endpoints">
+    ML prediction endpoints (e.g., `POST /predict`) are unauthenticated in the demo. Add a Supabase JWT verification dependency to each sensitive route before exposing the API publicly.
+
+    <Check>All prediction and admin API routes verify a valid Supabase session token.</Check>
+  </Step>
+
+  <Step title="Replace the CSV parser with a robust alternative">
+    The demo uses Python's built-in CSV parser to ingest guest review uploads. For production, switch to a hardened parser such as [PapaParse](https://www.papaparse.com/) on the frontend or `pandas.read_csv` with strict validation on the backend to handle malformed input safely.
+
+    <Check>CSV ingestion validates file structure, encoding, and maximum row count before processing.</Check>
+  </Step>
+
+  <Step title="Ensure real secrets are never committed to Git">
+    Confirm that `.env` files, local databases, and model artifacts are listed in `.gitignore` and have never been tracked. See the [Git hygiene](#git-hygiene) section below for the exact commands.
+
+    <Check>Running `git status` shows no `.env` files in the working tree or staging area.</Check>
+  </Step>
+
+  <Step title="Confirm Supabase RLS policies are applied">
+    Row-level security policies enforce per-hotel data isolation. Verify that RLS is enabled on every table in your production Supabase project by running the migrations from `hcims-ai-main/supabase/migrations/` against the production database.
+
+    ```bash
+    supabase db push --linked
+    ```
+
+    <Check>RLS is enabled on all tables and `supabase inspect db rls` reports no unprotected tables.</Check>
+  </Step>
+</Steps>
+
+---
+
+## Backend deployment
+
+Run the FastAPI backend with Uvicorn on your production server. The command below binds to all interfaces on port 8001; place a reverse proxy (Nginx, Caddy, or a cloud load balancer) in front of it to handle TLS termination.
+
+```bash
+cd HCIMS-AI-Complaint-System-main
+source venv/bin/activate
+uvicorn api:app --host 0.0.0.0 --port 8001
+```
+
+For a managed environment (e.g., Railway, Render, Fly.io, or a Docker container), set the same environment variables as a secret store rather than a `.env` file:
+
+```env Backend environment variables (set as secrets, not .env)
+SUPABASE_URL=https://your-project-id.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=<secret>
+SARVAM_API_KEY=<secret>
+NONESCAPE_MODEL_PATH=artifacts/nonescape-mini-v0.safetensors
+AI_IMAGE_CONFIDENCE_THRESHOLD=0.45
+PROOF_IMAGE_MAX_BYTES=10485760
+```
+
+<AccordionGroup>
+  <Accordion title="Run with a process manager (systemd / PM2 / Supervisor)">
+    For Linux VMs, wrap Uvicorn in a process manager so it restarts on crashes.
+
+    Example `systemd` unit (`/etc/systemd/system/hcims-backend.service`):
+
+    ```ini
+    [Unit]
+    Description=HCIMS AI FastAPI backend
+    After=network.target
+
+    [Service]
+    User=www-data
+    WorkingDirectory=/opt/hcims/HCIMS-AI-Complaint-System-main
+    ExecStart=/opt/hcims/HCIMS-AI-Complaint-System-main/venv/bin/uvicorn api:app --host 0.0.0.0 --port 8001
+    Restart=always
+    EnvironmentFile=/opt/hcims/HCIMS-AI-Complaint-System-main/.env
+
+    [Install]
+    WantedBy=multi-user.target
+    ```
+
+    Enable and start it:
+
+    ```bash
+    sudo systemctl enable hcims-backend
+    sudo systemctl start hcims-backend
+    ```
+  </Accordion>
+  <Accordion title="Run with Docker">
+    Create a `Dockerfile` in `HCIMS-AI-Complaint-System-main/`:
+
+    ```dockerfile
+    FROM python:3.11-slim
+    WORKDIR /app
+    COPY requirements.txt .
+    RUN pip install --no-cache-dir -r requirements.txt
+    COPY . .
+    EXPOSE 8001
+    CMD ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8001"]
+    ```
+
+    Pass secrets as environment variables at runtime, not baked into the image:
+
+    ```bash
+    docker run -d \
+      -p 8001:8001 \
+      --env-file .env.production \
+      hcims-backend:latest
+    ```
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Frontend deployment
+
+Build the React app and deploy the static output to any static host.
+
+```bash
+cd hcims-ai-main
+npm run build
+```
+
+This compiles TypeScript, bundles the app with Vite, and outputs static files to `hcims-ai-main/dist/`. Deploy the contents of `dist/` to your preferred host.
+
+<CardGroup cols={2}>
+  <Card title="Vercel" icon="triangle" href="https://vercel.com">
+    Connect your GitHub repository and set build command to `npm run build` with output directory `dist`. Add environment variables in the Vercel dashboard.
+  </Card>
+  <Card title="Netlify" icon="globe" href="https://netlify.com">
+    Drag and drop the `dist/` folder in the Netlify UI, or use the Netlify CLI. Set environment variables under **Site settings → Environment**.
+  </Card>
+  <Card title="Cloudflare Pages" icon="cloud" href="https://pages.cloudflare.com">
+    Add your repository, set the build command to `npm run build` and publish directory to `dist`. Environment variables are configured per deployment environment.
+  </Card>
+  <Card title="Self-hosted (Nginx)" icon="server" href="https://nginx.org">
+    Serve the `dist/` directory as a static root. Add a `try_files $uri /index.html` rule to support React Router's client-side navigation.
+  </Card>
+</CardGroup>
+
+<Note>
+  Because the frontend uses React Router for client-side navigation, your static host must redirect all 404s to `index.html`. On Nginx, add `try_files $uri $uri/ /index.html;` inside your `location /` block.
+</Note>
+
+---
+
+## CORS configuration
+
+Open `HCIMS-AI-Complaint-System-main/api.py` and update `allow_origins` to match your deployed frontend URL. Do this before deploying the backend.
+
+```python api.py — CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["https://app.yourdomain.com"],  # Replace with your frontend domain
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+```
+
+If you need to allow multiple domains (e.g., a staging and production environment), pass a list:
+
+```python
+allow_origins=[
+    "https://app.yourdomain.com",
+    "https://staging.yourdomain.com",
+],
+```
+
+---
+
+## Environment variables for production
+
+### Frontend (set before running `npm run build`)
+
+| Variable | Where to get it |
+|---|---|
+| `VITE_SUPABASE_PROJECT_ID` | Supabase dashboard → Project Settings → General |
+| `VITE_SUPABASE_PUBLISHABLE_KEY` | Supabase dashboard → Project Settings → API → anon/public key |
+| `VITE_SUPABASE_URL` | Supabase dashboard → Project Settings → API → Project URL |
+| `VITE_API_URL` | Your deployed FastAPI backend URL (e.g., `https://api.yourdomain.com`) |
+
+### Backend (set as secrets in your host's environment)
+
+| Variable | Where to get it |
+|---|---|
+| `SUPABASE_URL` | Same as `VITE_SUPABASE_URL` |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase dashboard → Project Settings → API → service_role key |
+| `SARVAM_API_KEY` | Sarvam developer portal |
+| `NONESCAPE_MODEL_PATH` | Relative path to the `.safetensors` weights file on the server |
+| `AI_IMAGE_CONFIDENCE_THRESHOLD` | Default `0.45`; raise to reduce false positives on proof validation |
+| `PROOF_IMAGE_MAX_BYTES` | Default `10485760` (10 MB); adjust to match your storage policy |
+
+<Warning>
+  `SUPABASE_SERVICE_ROLE_KEY` bypasses all Supabase RLS policies. Never expose it to the browser or log it to stdout. Store it only as a server-side secret.
+</Warning>
+
+---
+
+## Security
+
+### Supabase RLS data isolation
+
+Every tenant (hotel admin) operates on the same Supabase project, so row-level security is the primary boundary between their data. Apply all migrations in `hcims-ai-main/supabase/migrations/` to the production database and verify with:
+
+```bash
+supabase inspect db rls
+```
+
+Any table without RLS enabled is a data-leak risk. Fix it before inviting users.
+
+### Admin-only endpoint protection
+
+`SUPABASE_SERVICE_ROLE_KEY` is used server-side to manage staff accounts and retrieve cross-tenant data. API routes that invoke admin operations must verify that the calling user holds the `admin` role — check the Supabase JWT `app_metadata.role` claim in FastAPI before processing the request.
+
+---
+
+## Git hygiene
+
+These files and directories must never be committed to a public or shared repository.
+
+| Path | Reason |
+|---|---|
+| `hcims-ai-main/.env` | Contains your Supabase anon key |
+| `HCIMS-AI-Complaint-System-main/.env` | Contains `SUPABASE_SERVICE_ROLE_KEY` and `SARVAM_API_KEY` |
+| `HCIMS-AI-Complaint-System-main/venv/` | Python virtual environment — large and machine-specific |
+| `hcims-ai-main/node_modules/` | npm packages — large and regenerated by `npm install` |
+| `hcims-ai-main/dist/` | Production build output — generated by `npm run build` |
+| `HCIMS-AI-Complaint-System-main/__pycache__/` | Compiled Python bytecode |
+| `HCIMS-AI-Complaint-System-main/database/hcims.db` | Local SQLite database (if present) |
+| `artifacts/*.pkl`, `artifacts/*.safetensors` | Trained model weights — large binary files |
+
+If any of these files were already tracked, remove them from Git history before pushing:
+
+```bash
+git rm --cached hcims-ai-main/.env
+git rm --cached HCIMS-AI-Complaint-System-main/.env
+git rm --cached HCIMS-AI-Complaint-System-main/database/hcims.db
+```
+
+Then commit only the example templates:
+
+```bash
+git add .gitignore README.md \
+  hcims-ai-main/.env.example \
+  HCIMS-AI-Complaint-System-main/.env.example
+git commit -m "chore: remove tracked secrets, keep env examples"
+```
+
+<Info>
+  Add a `.gitignore` entry for `artifacts/` to prevent model weights from being staged accidentally during future commits.
+</Info>

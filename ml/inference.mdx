@@ -1,0 +1,301 @@
+---
+title: "Runtime Inference: Classifying Complaints and Appreciation"
+description: "HCIMS AI classifies guest reviews at runtime using cosine similarity, a seven-step appreciation detector, and keyword-based priority rules."
+---
+
+At runtime, `src/predict.py` provides two public functions that turn a raw guest review string into a structured prediction. The module loads its artifacts once at import time—`df.pkl` and `embeddings.pkl` are read from disk into memory, and the `all-MiniLM-L6-v2` sentence transformer is initialized—so subsequent calls to `predict_issue()` only pay the cost of a single forward pass and a matrix dot product. The appreciation detector runs before the complaint classifier, so positive reviews never produce false complaint predictions.
+
+## Startup: artifact and model loading
+
+When `src/predict.py` is imported, three objects are loaded into module-level globals:
+
+```python
+import pickle
+from sentence_transformers import SentenceTransformer
+
+df         = pickle.load(open("artifacts/df.pkl", "rb"))
+embeddings = pickle.load(open("artifacts/embeddings.pkl", "rb"))
+model      = SentenceTransformer("all-MiniLM-L6-v2")
+```
+
+`df` is the cleaned complaint DataFrame produced during training. `embeddings` is the corresponding L2-normalized matrix with shape `(N, 384)`. `model` is the encoder shared by both the complaint path and the appreciation detector.
+
+<Note>
+  Loading happens at import time, not on the first prediction call. In a long-running server
+  process this means the startup latency is paid once; all subsequent predictions are fast.
+</Note>
+
+## Inference flow for a single review
+
+<Steps>
+  <Step title="Encode and normalize the input">
+    The review string is encoded into a 384-dimensional vector and L2-normalized to match
+    the format of the stored embeddings.
+
+    ```python
+    emb = normalize(model.encode([review], convert_to_numpy=True))
+    ```
+  </Step>
+
+  <Step title="Run the appreciation detector">
+    Before computing complaint similarity, `detect_appreciation()` is called. If it returns
+    a non-`None` result, the function returns immediately with an `appreciation` response.
+    This early-exit prevents genuine praise from being mislabeled as a complaint.
+
+    ```python
+    appreciation_result = detect_appreciation(text=review, complaint_embeddings=embeddings)
+    if appreciation_result:
+        return appreciation_result
+    ```
+
+    See [Appreciation detection](#appreciation-detection) below for how this decision is made.
+  </Step>
+
+  <Step title="Find the most similar known complaint">
+    Cosine similarity is computed between the review embedding and the entire stored
+    embedding matrix. The row index with the highest similarity score identifies the
+    closest known complaint.
+
+    ```python
+    sims = cosine_similarity(emb, embeddings)
+    idx  = int(np.argmax(sims))
+    best_complaint_similarity = float(sims[0][idx])
+    ```
+  </Step>
+
+  <Step title="Look up department and issue text">
+    The matched row index is used to retrieve the department and canonical complaint text
+    directly from the in-memory DataFrame.
+
+    ```python
+    row        = df.iloc[idx]
+    department = row["department"]
+    issue      = row["complaint"]
+    ```
+  </Step>
+
+  <Step title="Assign priority from review keywords">
+    Priority is derived from a keyword scan of the original review text (not the matched
+    complaint). See [Priority assignment logic](#priority-assignment-logic) below.
+
+    ```python
+    priority = get_priority(review)
+    ```
+  </Step>
+
+  <Step title="Return the prediction result">
+    The function assembles and returns a dictionary with five fields.
+
+    ```python
+    return {
+        "type":       "complaint",
+        "issue_text": issue,
+        "department": department,
+        "priority":   priority,
+        "confidence": best_complaint_similarity
+    }
+    ```
+  </Step>
+</Steps>
+
+## Priority assignment logic
+
+`get_priority()` scans the lowercased review for three tiers of severity keywords:
+
+```python
+def get_priority(text):
+    text = text.lower()
+
+    if "not working" in text or "broken" in text or "leak" in text:
+        return "High"
+
+    if "slow" in text or "late" in text:
+        return "Medium"
+
+    return "Low"
+```
+
+| Priority | Trigger keywords |
+|---|---|
+| `High` | `not working`, `broken`, `leak` |
+| `Medium` | `slow`, `late` |
+| `Low` | *(default — no keywords matched)* |
+
+<Tip>
+  Priority is determined from the guest's own words, not from the matched complaint. A review
+  saying "the elevator is broken" will always receive `High` priority regardless of which
+  stored complaint it matches.
+</Tip>
+
+## Appreciation detection
+
+`src/appreciation_detector.py` uses a seven-step decision chain to avoid both false positives
+(complaints labeled as appreciation) and false negatives (genuine praise discarded).
+
+<AccordionGroup>
+  <Accordion title="Step 1 & 2 — Hard keyword rejection">
+    If the review contains any word from `NEGATIVE_CUES` (e.g., `broken`, `dirty`, `rude`,
+    `cockroach`) or any contrast conjunction from `CONTRAST_CUES` (e.g., `but`, `however`,
+    `though`), the review is immediately classified as a non-appreciation and the pipeline
+    continues to the complaint path.
+
+    ```python
+    NEGATIVE_CUES = {
+        "not", "no", "never", "bad", "poor", "dirty", "broken", "leak",
+        "delay", "late", "issue", "problem", "complaint", "worst", ...
+    }
+    CONTRAST_CUES = {"but", "however", "though", "although", "except", "yet", "still"}
+    ```
+
+    The phrase "no complaints" is explicitly exempted from the `no` / `complaint` rejection
+    because it is a common positive expression in Indian hotel reviews.
+  </Accordion>
+
+  <Accordion title="Step 3 — DistilBERT sentiment score">
+    `distilbert-base-uncased-finetuned-sst-2-english` from the Hugging Face `transformers`
+    library produces a POSITIVE/NEGATIVE label and confidence score. If the derived positive
+    sentiment probability is below **0.65**, the review is rejected as non-appreciation.
+
+    ```python
+    sentiment_pipeline = pipeline(
+        "sentiment-analysis",
+        model="distilbert-base-uncased-finetuned-sst-2-english",
+        truncation=True,
+    )
+
+    def get_sentiment_score(text):
+        result = sentiment_pipeline(text)[0]
+        label, score = result["label"], result["score"]
+        return score if label == "POSITIVE" else 1 - score
+    ```
+  </Accordion>
+
+  <Accordion title="Step 4 — India-specific pattern boost">
+    A set of 20 regex patterns captures common Indian-English praise phrases that DistilBERT
+    may underweight (e.g., `too good`, `fully satisfied`, `home away from home`,
+    `will definitely visit again`). A match adds a **+0.15** boost to the final similarity
+    score.
+
+    ```python
+    INDIA_APPRECIATION_PATTERNS = [
+        r"\btoo good\b",
+        r"\bvery nice\b",
+        r"\bfully satisfied\b",
+        r"\bwill (definitely |surely |certainly )?visit again\b",
+        r"\bhighly recommend(ed)?\b",
+        # ...20 patterns total
+    ]
+    ```
+  </Accordion>
+
+  <Accordion title="Steps 5 & 6 — Dual similarity comparison">
+    The review is encoded and compared against two matrices:
+
+    1. **`appreciation_embeddings`** — 53 curated positive reference sentences across eight
+       hotel experience categories: rooms, food &amp; dining, staff &amp; service, WiFi &amp; facilities,
+       location, check-in, overall experience, and value for money. The best match score is recorded.
+    2. **`complaint_embeddings`** — the live training artifact. The best complaint similarity
+       score is also recorded.
+
+    Both scores feed the final decision rule.
+  </Accordion>
+
+  <Accordion title="Step 7 — Final decision">
+    Two conditions can trigger an appreciation classification:
+
+    ```python
+    adjusted_score = best_similarity + india_boost
+
+    # Primary rule: appreciation similarity beats complaint similarity
+    if adjusted_score >= 0.38 and best_similarity > best_complaint_similarity:
+        return True, round(adjusted_score, 4)
+
+    # Override: very high sentiment with decent appreciation similarity
+    if sentiment_score >= 0.90 and adjusted_score >= 0.30:
+        return True, round(adjusted_score, 4)
+    ```
+
+    If neither condition is met, `is_appreciation` returns `False` and the complaint path
+    proceeds normally.
+  </Accordion>
+</AccordionGroup>
+
+When appreciation is detected, `detect_appreciation()` returns the matched reference
+department so the positive feedback is routed to the correct team:
+
+```python
+return {
+    "type":              "appreciation",
+    "department":        REFERENCE_DEPARTMENTS[best_idx],
+    "confidence":        confidence,
+    "matched_reference": APPRECIATION_REFERENCES[best_idx],
+}
+```
+
+## Response format
+
+<Tabs>
+  <Tab title="Complaint response">
+    Returned when the review is classified as a guest complaint.
+
+    ```json
+    {
+      "type": "complaint",
+      "issue_text": "The air conditioning in the room is not working properly.",
+      "department": "Maintenance",
+      "priority": "High",
+      "confidence": 0.8741
+    }
+    ```
+
+    | Field | Type | Description |
+    |---|---|---|
+    | `type` | `"complaint"` | Always `"complaint"` for this path |
+    | `issue_text` | string | Canonical complaint text from the training dataset |
+    | `department` | string | Hotel department responsible for the issue |
+    | `priority` | `"High"` \| `"Medium"` \| `"Low"` | Derived from review keyword scan |
+    | `confidence` | float (0–1) | Cosine similarity between review and matched complaint |
+  </Tab>
+  <Tab title="Appreciation response">
+    Returned when the appreciation detector fires before the complaint classifier runs.
+
+    ```json
+    {
+      "type": "appreciation",
+      "department": "Housekeeping",
+      "confidence": 0.5312,
+      "matched_reference": "The room was spotless, clean, and beautifully maintained."
+    }
+    ```
+
+    | Field | Type | Description |
+    |---|---|---|
+    | `type` | `"appreciation"` | Always `"appreciation"` for this path |
+    | `department` | string | Department inferred from the best appreciation reference match |
+    | `confidence` | float (0–1) | Adjusted appreciation similarity score |
+    | `matched_reference` | string | The curated reference sentence that best matched the review |
+  </Tab>
+</Tabs>
+
+## Batch inference
+
+The `POST /predict_batch` endpoint in `api.py` handles bulk CSV uploads by iterating over each review string and calling `predict_issue()` for each one. Blank strings are silently skipped:
+
+```python
+# In api.py — predict_batch endpoint handler
+results = []
+for r in req.reviews:
+    if not r.strip():
+        continue
+    result = predict_issue(r)
+    if result.get("type") == "appreciation" and "priority" not in result:
+        result["priority"] = "Low"
+    results.append({"review_text": r, **result})
+return results
+```
+
+Each element in the response array is the `predict_issue()` result merged with the original `review_text` field. The batch endpoint also ensures appreciations always carry a `priority: "Low"` field for consistency with complaint responses.
+
+<Warning>
+  Batch inference runs predictions sequentially — one review at a time in a Python loop. For large CSV uploads (hundreds or thousands of rows), processing time scales linearly with row count. Factor this into expected wait times when uploading large review files.
+</Warning>

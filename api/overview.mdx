@@ -1,0 +1,85 @@
+---
+title: "HCIMS AI Backend API reference"
+description: "Complete reference for the HCIMS AI REST API — covering prediction, admin, complaint resolution, translation, and voice transcription endpoints."
+---
+
+The HCIMS AI backend is a FastAPI application that powers the Hotel Complaint Intelligence Management System. It exposes endpoints for ML-based review classification, staff account management, complaint resolution with proof validation, and multilingual text and audio processing via Sarvam AI.
+
+## Base URL
+
+The API runs on port `8001` by default. For local development, all requests should target:
+
+```
+http://localhost:8001
+```
+
+The frontend reads this URL from the `VITE_API_URL` environment variable. Set it in your `.env` file to point to a deployed instance:
+
+```bash
+VITE_API_URL=https://your-backend.example.com
+```
+
+## Authentication
+
+<Info>
+  Prediction endpoints (`/predict`, `/predict_batch`) are currently open and do not require authentication.
+</Info>
+
+Admin and complaint endpoints require a valid Supabase session. Pass the user's access token in the `Authorization` header:
+
+```
+Authorization: Bearer <supabase_access_token>
+```
+
+The backend validates the token against your Supabase project and checks the user's `role` in the `profiles` table. Requests without a valid token receive `401 Unauthorized`. Requests from non-admin users to admin-only endpoints receive `403 Forbidden`.
+
+## Content types
+
+| Endpoint type | Content-Type |
+|---|---|
+| JSON request bodies | `application/json` |
+| File uploads (proof images, audio) | `multipart/form-data` |
+
+## Error format
+
+All errors follow the standard FastAPI `HTTPException` structure:
+
+```json
+{
+  "detail": "Human-readable error message"
+}
+```
+
+For the synthetic image detection block on `POST /complaints/{id}/resolve_with_proof`, the `detail` field is an object rather than a string — see the [Complaints API](/api/complaints) for that shape.
+
+## Endpoints
+
+| Method | Path | Tag | Auth required |
+|---|---|---|---|
+| `GET` | `/` | Health | No |
+| `GET` | `/health` | Health | No |
+| `POST` | `/predict` | Prediction | No |
+| `POST` | `/predict_batch` | Prediction | No |
+| `POST` | `/create_staff` | Admin | Yes — admin |
+| `PUT` | `/update_staff` | Admin | Yes — admin |
+| `DELETE` | `/delete_staff` | Admin | Yes — admin |
+| `POST` | `/complaints/{complaint_id}/resolve_with_proof` | Complaints | Yes — admin or staff |
+| `POST` | `/translate/texts` | Translation | No |
+| `POST` | `/transcribe` | Voice | No |
+
+## Reference pages
+
+<CardGroup cols={2}>
+  <Card title="Prediction API" icon="brain" href="/api/prediction">
+    Classify hotel reviews as complaints or appreciation, with department and priority routing.
+  </Card>
+  <Card title="Admin API" icon="users" href="/api/admin">
+    Create, update, and delete department staff accounts using the Supabase service role.
+  </Card>
+  <Card title="Complaints API" icon="circle-check" href="/api/complaints">
+    Resolve complaint tickets by uploading proof images with AI-powered synthetic detection.
+  </Card>
+  <Card title="Translation API" icon="language" href="/api/translation">
+    Translate text and transcribe Indian-language audio using Sarvam AI.
+  </Card>
+</CardGroup>

@@ -1,80 +1,165 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: "Get started with HCIMS AI"
+description: "Clone the monorepo, set Supabase and Sarvam credentials, install dependencies, and run the FastAPI backend and React frontend locally in minutes."
 ---
 
-## Get started in three steps
+This guide walks you through running HCIMS AI on your local machine. You will clone the repository, populate two `.env` files with your credentials, install dependencies for the frontend and backend separately, and then start both services. The whole process takes around 15 minutes on first run (longer if the ML model needs training).
 
-Get your documentation site running locally and make your first customization.
+<Info>
+  You need Python 3.10+ and Node.js 18+ installed before you begin. A Supabase project and a Sarvam AI API key are also required.
+</Info>
 
-### Step 1: Set up your local environment
+<Steps>
+  <Step title="Clone the repository">
+    Clone the monorepo and enter the project directory.
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+    ```bash
+    git clone https://github.com/Yashviit886/ML-temp.git
+    cd ML-temp
+    ```
 
-### Step 2: Deploy your changes
+    The repository root contains two main application directories: `hcims-ai-main/` (React frontend) and `HCIMS-AI-Complaint-System-main/` (FastAPI backend).
+  </Step>
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+  <Step title="Configure environment variables">
+    Each service needs its own `.env` file. Copy the example templates and fill in your credentials.
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+    **Frontend** — `hcims-ai-main/.env`
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+    ```bash
+    cp hcims-ai-main/.env.example hcims-ai-main/.env
+    ```
 
-### Step 3: Go live
+    Open `hcims-ai-main/.env` and set:
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+    ```env
+    VITE_SUPABASE_PROJECT_ID=your_supabase_project_id
+    VITE_SUPABASE_PUBLISHABLE_KEY=your_supabase_anon_key
+    VITE_SUPABASE_URL=https://your_project_id.supabase.co
+    VITE_API_URL=http://localhost:8001
+    ```
+
+    **Backend** — `HCIMS-AI-Complaint-System-main/.env`
+
+    ```bash
+    cp HCIMS-AI-Complaint-System-main/.env.example HCIMS-AI-Complaint-System-main/.env
+    ```
+
+    Open `HCIMS-AI-Complaint-System-main/.env` and set:
+
+    ```env
+    SUPABASE_URL=https://your_project_id.supabase.co
+    SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+    SARVAM_API_KEY=your_sarvam_api_key
+    NONESCAPE_MODEL_PATH=artifacts/nonescape-mini-v0.safetensors
+    AI_IMAGE_CONFIDENCE_THRESHOLD=0.45
+    PROOF_IMAGE_MAX_BYTES=10485760
+    ```
+
+    <Warning>
+      Never commit real `.env` files to Git. The `.env.example` templates are safe to commit; the populated `.env` files are not.
+    </Warning>
+
+    <Tip>
+      Find `VITE_SUPABASE_PROJECT_ID`, `VITE_SUPABASE_PUBLISHABLE_KEY`, and `VITE_SUPABASE_URL` in your Supabase project under **Settings → API**. Use the `service_role` key (not the `anon` key) for `SUPABASE_SERVICE_ROLE_KEY` in the backend.
+    </Tip>
+  </Step>
+
+  <Step title="Install frontend dependencies">
+    Move into the frontend directory and install packages with npm.
+
+    ```bash
+    cd hcims-ai-main
+    npm install
+    ```
+
+    This installs React 18, Vite, Tailwind CSS, shadcn/ui, the Supabase JS client, TanStack Query, Recharts, and all other frontend dependencies listed in `package.json`.
+  </Step>
+
+  <Step title="Install backend dependencies">
+    Create a Python virtual environment, activate it, and install the backend packages.
+
+    <CodeGroup>
+
+    ```bash macOS / Linux
+    cd ../HCIMS-AI-Complaint-System-main
+    python -m venv venv
+    source venv/bin/activate
+    pip install -r requirements.txt
+    ```
+
+    ```powershell Windows
+    cd ..\HCIMS-AI-Complaint-System-main
+    python -m venv venv
+    venv\Scripts\activate
+    pip install -r requirements.txt
+    ```
+
+    </CodeGroup>
+
+    The `requirements.txt` installs FastAPI, Uvicorn, scikit-learn, sentence-transformers, PyTorch, Pillow, MLflow, DVC, and the other ML dependencies needed to run the prediction pipeline.
+
+    <Note>
+      On first startup, the backend checks for trained model artifacts in `artifacts/`. If they are missing, it runs `src/train_model.py` automatically. This one-time training step can take a few minutes depending on your hardware.
+    </Note>
+  </Step>
+
+  <Step title="Start the backend">
+    From the `HCIMS-AI-Complaint-System-main/` directory with your virtual environment active, start the FastAPI server.
+
+    ```bash
+    uvicorn api:app --host 0.0.0.0 --port 8001
+    ```
+
+    The API is now running at `http://localhost:8001`. Interactive API docs are available at `http://localhost:8001/docs`.
+  </Step>
+
+  <Step title="Start the frontend">
+    Open a new terminal, move into `hcims-ai-main/`, and start the Vite dev server.
+
+    ```bash
+    cd hcims-ai-main
+    npm run dev -- --host 0.0.0.0 --port 8080
+    ```
+
+    The frontend is now running at `http://localhost:8080`.
+  </Step>
+
+  <Step title="Open the application">
+    Navigate to `http://localhost:8080` in your browser.
+
+    ```text
+    http://localhost:8080
+    ```
+
+    <Note>
+      Sign in as an **admin** first. Admin accounts are created through the Supabase Auth dashboard or the sign-up flow (before you disable public admin self-signup for production). Department staff accounts are created from within the admin dashboard after you log in.
+    </Note>
+  </Step>
+</Steps>
+
+## Demo flow
+
+Once both services are running and you are signed in as admin, follow this sequence to see the full platform in action:
+
+1. Go to the **Upload** page and upload a CSV of guest reviews.
+2. The backend classifies each row as a complaint or appreciation and generates tickets.
+3. Review the generated tickets in the admin ticket table.
+4. Create one or more department staff accounts from the **Staff** management page and share the credentials.
+5. Open a new browser session (or incognito window), sign in as a department staff member, and resolve an assigned ticket by uploading a proof photo.
+6. Return to the admin session and review the updated ticket status and the **Analytics** dashboard.
+
+<Tip>
+  Use the `start.ps1` script at the repository root on Windows to launch both services in separate processes with a single command.
+</Tip>
 
 ## Next steps
 
-Now that you have your docs running, explore these key features:
-
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Architecture" icon="diagram-project" href="/architecture">
+    Understand the data flow between the ML pipeline, Supabase, and the UI
+  </Card>
+  <Card title="Environment variables" icon="key" href="/configuration/environment-variables">
+    Full reference for every frontend and backend configuration option
+  </Card>
 </CardGroup>
-
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>

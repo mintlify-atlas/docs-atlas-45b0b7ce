@@ -1,0 +1,349 @@
+---
+title: 'HCIMS AI Database Schema and Table Reference'
+description: 'Full schema for all HCIMS AI PostgreSQL tables — columns, types, RLS policies, and triggers that automate notifications and enforce tenant isolation.'
+---
+
+HCIMS AI uses a PostgreSQL database managed by Supabase. The schema is defined across eight migration files in `supabase/migrations/` and is applied in full via `supabase db push`. This page documents every table, its columns, the constraints that enforce data integrity, and the Row Level Security policies that isolate each admin tenant's data from others.
+
+<Note>
+  All tables have Row Level Security (RLS) enabled. Never disable RLS on any table — doing so would expose all tenants' data to every authenticated user.
+</Note>
+
+---
+
+## profiles
+
+Stores extended user information for every account created through Supabase Auth. A row is inserted automatically by the `on_auth_user_created` trigger immediately after a new auth user is created.
+
+```sql
+CREATE TABLE public.profiles (
+  id                   UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  full_name            TEXT NOT NULL DEFAULT '',
+  role                 TEXT NOT NULL DEFAULT 'department_staff'
+                         CHECK (role IN ('admin', 'department_staff')),
+  department           TEXT,
+  created_by_admin_id  UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  created_at           TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+  updated_at           TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
+);
+```
+
+<ResponseField name="id" type="UUID" required>
+  Primary key. Matches the `id` of the corresponding row in `auth.users`. Deleted automatically when the auth user is removed.
+</ResponseField>
+
+<ResponseField name="full_name" type="TEXT" required>
+  Display name of the user. Populated from `raw_user_meta_data.full_name` at signup. Defaults to an empty string if not provided.
+</ResponseField>
+
+<ResponseField name="role" type="TEXT" required>
+  User role. Accepted values: `admin` or `department_staff`. Defaults to `department_staff`. Controls which RLS policies apply to this user across all tables.
+</ResponseField>
+
+<ResponseField name="department" type="TEXT">
+  The hotel department this staff member belongs to (e.g., `Housekeeping`, `Front Desk`). Null for admin accounts. Used to scope complaint and notification visibility.
+</ResponseField>
+
+<ResponseField name="created_by_admin_id" type="UUID">
+  The `id` of the admin who created this staff profile. Null for admin accounts (admins are self-created). Used to enforce multi-tenant data isolation — staff profiles are only visible to their creating admin.
+</ResponseField>
+
+<ResponseField name="created_at" type="TIMESTAMP WITH TIME ZONE" required>
+  UTC timestamp when the profile row was created. Set once on insert.
+</ResponseField>
+
+<ResponseField name="updated_at" type="TIMESTAMP WITH TIME ZONE" required>
+  UTC timestamp of the most recent update. Maintained automatically by the `update_profiles_updated_at` trigger.
+</ResponseField>
+
+**RLS policies** (final state after all migrations):
+
+| Policy | Operation | Rule |
+|---|---|---|
+| Users can view scoped profiles | SELECT | Own row, or admin viewing staff they created |
+| Users can insert own profile | INSERT | `id = auth.uid()` and `created_by_admin_id IS NULL` |
+| Admins can update owned staff profiles | UPDATE | Admin role and `created_by_admin_id = auth.uid()` |
+
+---
+
+## complaints
+
+The central table. Each row represents a single guest complaint that has been ingested and classified by the AI pipeline.
+
+```sql
+CREATE TABLE public.complaints (
+  id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  review_text           TEXT NOT NULL,
+  department            TEXT NOT NULL,
+  priority              TEXT NOT NULL DEFAULT 'Medium'
+                          CHECK (priority IN ('High', 'Medium', 'Low')),
+  status                TEXT NOT NULL DEFAULT 'Active'
+                          CHECK (status IN ('Active', 'Pending', 'Resolved', 'Extended')),
+  confidence_score      NUMERIC,
+  deadline              TIMESTAMP WITH TIME ZONE,
+  proof_url             TEXT,
+  resolved_at           TIMESTAMP WITH TIME ZONE,
+  resolution_notes      TEXT,
+  uploaded_by_admin_id  UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  created_at            TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+  updated_at            TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
+);
+```
+
+<ResponseField name="id" type="UUID" required>
+  Auto-generated primary key using `gen_random_uuid()`.
+</ResponseField>
+
+<ResponseField name="review_text" type="TEXT" required>
+  The raw guest review or complaint text as ingested from the source channel.
+</ResponseField>
+
+<ResponseField name="department" type="TEXT" required>
+  The hotel department responsible for resolving this complaint. Determines which staff members can view and update the row.
+</ResponseField>
+
+<ResponseField name="priority" type="TEXT" required>
+  AI-assigned severity level. Accepted values: `High`, `Medium`, `Low`. Defaults to `Medium`.
+</ResponseField>
+
+<ResponseField name="status" type="TEXT" required>
+  Current lifecycle status. Accepted values: `Active`, `Pending`, `Resolved`, `Extended`. Defaults to `Active`.
+</ResponseField>
+
+<ResponseField name="confidence_score" type="NUMERIC">
+  The AI model's confidence score (0.0–1.0) for its classification of this complaint. Null if classification has not run yet.
+</ResponseField>
+
+<ResponseField name="deadline" type="TIMESTAMP WITH TIME ZONE">
+  The resolution deadline assigned to this complaint. Used by the `check-deadlines` Edge Function to send deadline notifications.
+</ResponseField>
+
+<ResponseField name="proof_url" type="TEXT">
+  Public URL of the proof image uploaded to the `proofs` storage bucket when a staff member marks the complaint as resolved.
+</ResponseField>
+
+<ResponseField name="resolved_at" type="TIMESTAMP WITH TIME ZONE">
+  UTC timestamp when the complaint was marked `Resolved`. Set by the application layer.
+</ResponseField>
+
+<ResponseField name="resolution_notes" type="TEXT">
+  Free-text notes entered by the staff member or admin when resolving the complaint.
+</ResponseField>
+
+<ResponseField name="uploaded_by_admin_id" type="UUID">
+  The `id` of the admin who ingested this complaint. Defaults to `public.user_admin_owner()` at insert time, ensuring new rows are automatically scoped to the correct tenant.
+</ResponseField>
+
+<ResponseField name="created_at" type="TIMESTAMP WITH TIME ZONE" required>
+  UTC timestamp when the complaint was first ingested.
+</ResponseField>
+
+<ResponseField name="updated_at" type="TIMESTAMP WITH TIME ZONE" required>
+  UTC timestamp of the most recent update. Maintained automatically by the `update_complaints_updated_at` trigger.
+</ResponseField>
+
+**RLS policies** (final state after all migrations):
+
+| Policy | Operation | Rule |
+|---|---|---|
+| Users can view scoped complaints | SELECT | Admin sees own; staff sees their department within their admin's scope |
+| Admins can insert own complaints | INSERT | Admin role and `uploaded_by_admin_id = auth.uid()` |
+| Users can update scoped complaints | UPDATE | Admin sees own; staff updates their department within their admin's scope |
+| Admins can delete own complaints | DELETE | Admin role and `uploaded_by_admin_id = auth.uid()` |
+
+---
+
+## appreciations
+
+Stores positive guest feedback classified by the AI pipeline. Shares the same ingestion workflow as complaints but has a simpler lifecycle with no priority or status tracking.
+
+```sql
+CREATE TABLE public.appreciations (
+  id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  review_text           TEXT NOT NULL,
+  department            TEXT NOT NULL,
+  uploaded_by_admin_id  UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  created_at            TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
+);
+```
+
+<ResponseField name="id" type="UUID" required>
+  Auto-generated primary key.
+</ResponseField>
+
+<ResponseField name="review_text" type="TEXT" required>
+  The raw guest review text classified as positive feedback.
+</ResponseField>
+
+<ResponseField name="department" type="TEXT" required>
+  The hotel department credited with the positive feedback.
+</ResponseField>
+
+<ResponseField name="uploaded_by_admin_id" type="UUID">
+  The admin who ingested this appreciation. Defaults to `public.user_admin_owner()` at insert time.
+</ResponseField>
+
+<ResponseField name="created_at" type="TIMESTAMP WITH TIME ZONE" required>
+  UTC timestamp when the appreciation was ingested.
+</ResponseField>
+
+**RLS policies** (final state after all migrations):
+
+| Policy | Operation | Rule |
+|---|---|---|
+| Users can view scoped appreciations | SELECT | Admin sees own; staff sees their department within their admin's scope |
+| Admins can insert own appreciations | INSERT | Admin role and `uploaded_by_admin_id = auth.uid()` |
+
+---
+
+## notifications
+
+System-generated in-app notifications delivered to staff and admins. Rows are inserted exclusively by database triggers using `SECURITY DEFINER` — direct client inserts from authenticated users are blocked by RLS.
+
+```sql
+CREATE TABLE public.notifications (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id       UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  department    TEXT,
+  title         TEXT NOT NULL,
+  message       TEXT NOT NULL,
+  type          TEXT NOT NULL DEFAULT 'info'
+                  CHECK (type IN ('new_ticket', 'deadline_approaching', 'deadline_passed', 'info')),
+  complaint_id  UUID REFERENCES public.complaints(id) ON DELETE CASCADE,
+  admin_id      UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  read          BOOLEAN NOT NULL DEFAULT false,
+  created_at    TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
+);
+```
+
+<ResponseField name="id" type="UUID" required>
+  Auto-generated primary key.
+</ResponseField>
+
+<ResponseField name="user_id" type="UUID">
+  The specific user this notification is addressed to. Null for department-broadcast notifications.
+</ResponseField>
+
+<ResponseField name="department" type="TEXT">
+  Department to which this notification is broadcast. Null for user-specific notifications.
+</ResponseField>
+
+<ResponseField name="title" type="TEXT" required>
+  Short notification heading, e.g., `New High Priority Ticket`.
+</ResponseField>
+
+<ResponseField name="message" type="TEXT" required>
+  Notification body text. For new-complaint notifications this is the first 120 characters of `review_text`.
+</ResponseField>
+
+<ResponseField name="type" type="TEXT" required>
+  Notification category. Accepted values: `new_ticket`, `deadline_approaching`, `deadline_passed`, `info`. Defaults to `info`.
+</ResponseField>
+
+<ResponseField name="complaint_id" type="UUID">
+  Foreign key to the complaint that triggered this notification. Null for general `info` notifications.
+</ResponseField>
+
+<ResponseField name="admin_id" type="UUID">
+  The admin tenant this notification belongs to. Used for multi-tenant scoping — staff only see notifications whose `admin_id` matches their own admin's ID.
+</ResponseField>
+
+<ResponseField name="read" type="BOOLEAN" required>
+  Whether the recipient has read this notification. Defaults to `false`.
+</ResponseField>
+
+<ResponseField name="created_at" type="TIMESTAMP WITH TIME ZONE" required>
+  UTC timestamp when the notification was created.
+</ResponseField>
+
+**Indexes:** `department`, `read`, `created_at DESC`, `admin_id`.
+
+**RLS policies** (final state after all migrations):
+
+| Policy | Operation | Rule |
+|---|---|---|
+| Users can view scoped notifications | SELECT | Own `user_id`, or `admin_id` matches and role/department matches |
+| Users can update scoped notifications | UPDATE | Same as SELECT — used to mark notifications as read |
+| No direct client inserts | INSERT | Blocked for all authenticated users; inserts come only from `SECURITY DEFINER` triggers |
+
+---
+
+## activity_logs
+
+Audit trail of user actions within the application. Each write operation performed by a staff member or admin should produce a corresponding log entry.
+
+```sql
+CREATE TABLE public.activity_logs (
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id    UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  action     TEXT NOT NULL,
+  admin_id   UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
+);
+```
+
+<ResponseField name="id" type="UUID" required>
+  Auto-generated primary key.
+</ResponseField>
+
+<ResponseField name="user_id" type="UUID">
+  The user who performed the action. Set to null if the user account is later deleted.
+</ResponseField>
+
+<ResponseField name="action" type="TEXT" required>
+  Human-readable description of the action performed (e.g., `Resolved complaint #abc123`).
+</ResponseField>
+
+<ResponseField name="admin_id" type="UUID">
+  The admin tenant this log entry belongs to. Defaults to `public.user_admin_owner()` at insert time.
+</ResponseField>
+
+<ResponseField name="created_at" type="TIMESTAMP WITH TIME ZONE" required>
+  UTC timestamp when the action occurred.
+</ResponseField>
+
+**RLS policies** (final state after all migrations):
+
+| Policy | Operation | Rule |
+|---|---|---|
+| Users can view scoped logs | SELECT | Own `user_id`, or `admin_id` matches the current user's admin owner |
+| Users can insert scoped logs | INSERT | `user_id = auth.uid()` and `admin_id = user_admin_owner()` |
+
+---
+
+## Database triggers and functions
+
+<AccordionGroup>
+  <Accordion title="on_auth_user_created — auto-create profile on signup">
+    Fires `AFTER INSERT` on `auth.users`. Calls `public.handle_new_user()`, which inserts a row into `public.profiles` using `full_name`, `role`, `department`, and `created_by_admin_id` from `raw_user_meta_data`. Uses `ON CONFLICT (id) DO UPDATE` so re-running the function is safe.
+  </Accordion>
+
+  <Accordion title="on_complaint_created — broadcast new-ticket notification">
+    Fires `AFTER INSERT` on `public.complaints`. Calls `public.notify_new_complaint()`, which inserts a row into `public.notifications` with type `new_ticket`, scoped to the complaint's department and `uploaded_by_admin_id`. This is the only path by which notification rows are inserted — direct client inserts are blocked by RLS.
+  </Accordion>
+
+  <Accordion title="update_complaints_updated_at / update_profiles_updated_at">
+    Both triggers fire `BEFORE UPDATE` on their respective tables and call `public.update_updated_at_column()`, which sets `NEW.updated_at = now()`. This ensures the `updated_at` column always reflects the last modification time without requiring the application layer to manage it.
+  </Accordion>
+
+  <Accordion title="user_role() and user_department() — RLS helper functions">
+    Two `STABLE SECURITY DEFINER` functions that return the role and department of the currently authenticated user by querying `public.profiles WHERE id = auth.uid()`. Used inline within RLS policy `USING` clauses across all tables to avoid repeated subquery boilerplate.
+  </Accordion>
+
+  <Accordion title="user_admin_owner() — tenant resolution function">
+    Returns the UUID of the admin who owns the current user's data scope. For admin users this returns their own `id`; for staff it returns their `created_by_admin_id`. Used as the `DEFAULT` for `uploaded_by_admin_id` and `admin_id` columns so new rows are automatically assigned to the correct tenant without application-layer intervention.
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Extensions
+
+Two PostgreSQL extensions are enabled by the migrations:
+
+```sql
+CREATE EXTENSION IF NOT EXISTS pg_cron WITH SCHEMA pg_catalog;
+CREATE EXTENSION IF NOT EXISTS pg_net WITH SCHEMA extensions;
+```
+
+`pg_cron` enables the scheduled `check-deadlines` Edge Function invocation that fires deadline-approaching and deadline-passed notifications. `pg_net` enables outbound HTTP calls from within the database, which the cron job uses to trigger the Edge Function endpoint.

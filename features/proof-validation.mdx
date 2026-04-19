@@ -1,0 +1,121 @@
+---
+title: "AI Proof Validation — Block Fake Resolution Images"
+description: "Detect AI-generated proof images before resolving tickets, protecting complaint integrity and notifying the admin on every blocked upload attempt."
+---
+
+When a staff member resolves a complaint ticket, they must upload a photograph proving that the issue has been fixed. Without a fraud check, a dishonest employee could use an AI image generator to produce a plausible-looking photo and close the ticket without ever attending to the guest's problem. HCIMS AI prevents this with an automatic synthetic-image detection step powered by the **Nonescape** classifier. Every proof image is screened before the ticket status changes — if the image is detected as AI-generated or synthetic, the upload is rejected and the administrator is notified immediately.
+
+## How proof validation works
+
+<Steps>
+  <Step title="Staff submits a proof image">
+    The staff member uploads a photo via the `/complaints/{complaint_id}/resolve_with_proof` endpoint, along with optional resolution notes. Only image files are accepted — PDF uploads are explicitly rejected.
+  </Step>
+  <Step title="File validation">
+    The backend checks that the file is a real image (using `PIL.Image.verify()`), that it is not empty, and that it does not exceed the configured size limit. Failures at this stage return a `400` error before any ML inference runs.
+  </Step>
+  <Step title="Synthetic image detection">
+    The validated image is passed to `NonescapeClassifierMini`, which outputs two probabilities: `authentic_confidence` and `synthetic_confidence`. If `synthetic_confidence` meets or exceeds the configured threshold, the upload is blocked.
+  </Step>
+  <Step title="Block or approve">
+    If the image is blocked, the ticket remains open, no storage upload occurs, and a notification is written to the admin's notification feed. If the image passes, it is uploaded to Supabase Storage and the ticket status is set to `Resolved`.
+  </Step>
+</Steps>
+
+## The Nonescape classifier
+
+The detection model is **NonescapeClassifierMini**, a lightweight binary image classifier that distinguishes real photographs from AI-generated or synthetically produced images.
+
+| Property | Value |
+|----------|-------|
+| **Model class** | `NonescapeClassifierMini` |
+| **Weight file** | `artifacts/nonescape-mini-v0.safetensors` |
+| **Outputs** | Probability for `authentic` (index 0) and `synthetic` (index 1) |
+| **Inference mode** | `torch.no_grad()` — no gradient computation |
+| **Loading** | Loaded once at startup and cached with `@lru_cache(maxsize=1)` |
+
+The model path can be overridden by setting the `NONESCAPE_MODEL_PATH` environment variable. The filename prefix `nonescape-mini` is used to select the `NonescapeClassifierMini` class automatically; any other filename prefix loads the full `NonescapeClassifier`.
+
+<Warning>
+  The Nonescape package and its model weights are not bundled with HCIMS AI. You must download and install them separately before proof validation is operational. Until the weights are present, any resolution attempt returns a `503` error.
+</Warning>
+
+## Confidence threshold
+
+The threshold that controls how aggressively synthetic images are blocked is configurable:
+
+```bash
+AI_IMAGE_CONFIDENCE_THRESHOLD=0.45   # default
+```
+
+A proof upload is blocked when **either** of the following is true:
+
+- `is_synthetic` is `true` (i.e., `synthetic_confidence > authentic_confidence`), **or**
+- `synthetic_confidence >= threshold`
+
+The two-condition check means that even images where synthetic probability is only slightly above authentic probability — but still below the threshold — are blocked if `is_synthetic` is set. Raising the threshold reduces false positives at the cost of allowing borderline synthetic images through; lowering it increases sensitivity.
+
+<Tip>
+  The default threshold of `0.45` is calibrated to block clearly synthetic images and suspicious borderline cases without triggering false positives on real hotel photographs taken in typical indoor lighting conditions.
+</Tip>
+
+## ProofValidationResult fields
+
+Every call to `detect_synthetic_image()` returns a `ProofValidationResult` dataclass. This object is serialised and returned to the client in the API response, regardless of whether the upload is approved or blocked.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `is_synthetic` | boolean | `true` if `synthetic_confidence > authentic_confidence` |
+| `confidence` | float | Same as `synthetic_confidence` (0–1) |
+| `authentic_confidence` | float | Model probability that the image is a real photograph |
+| `synthetic_confidence` | float | Model probability that the image is AI-generated or synthetic |
+| `provider` | string | Always `"nonescape"` |
+| `threshold` | float | The threshold value that was active at the time of the check |
+
+```json
+{
+  "is_synthetic": true,
+  "confidence": 0.7823,
+  "authentic_confidence": 0.2177,
+  "synthetic_confidence": 0.7823,
+  "provider": "nonescape",
+  "threshold": 0.45
+}
+```
+
+## Image requirements
+
+<AccordionGroup>
+  <Accordion title="Accepted file types">
+    Only image MIME types are accepted (e.g., `image/jpeg`, `image/png`, `image/webp`). PDF and document uploads are explicitly blocked with a `400` error. This restriction exists because the Nonescape classifier is trained on image data only.
+  </Accordion>
+  <Accordion title="File size limit">
+    The maximum proof image size is controlled by the `PROOF_IMAGE_MAX_BYTES` environment variable. The default is **10 MB** (`10 * 1024 * 1024` bytes). Images exceeding this limit return a `400` error before any validation runs.
+
+    ```bash
+    PROOF_IMAGE_MAX_BYTES=10485760   # 10 MB default
+    ```
+  </Accordion>
+  <Accordion title="Image integrity">
+    The image must pass `PIL.Image.verify()`. Corrupted, truncated, or non-image binary data is rejected before reaching the ML model.
+  </Accordion>
+</AccordionGroup>
+
+## Admin notification on blocked upload
+
+When a proof image is blocked, the system automatically creates a notification entry in the `notifications` table targeting the admin who owns the ticket. The notification contains:
+
+- **Title:** `"AI-generated proof upload blocked"`
+- **Message:** The staff member's name, their department, and the `synthetic_confidence` percentage (e.g., `"78.2% synthetic score"`)
+- **Linked complaint:** The `complaint_id` is attached so the admin can open the ticket directly from the notification
+
+The ticket itself is not modified — it remains in its current status (Active or Pending) so that a legitimate resolution attempt can be made.
+
+<CardGroup cols={2}>
+  <Card title="Department routing" icon="arrow-right" href="/features/department-routing">
+    Understand the ticket lifecycle that proof validation closes out.
+  </Card>
+  <Card title="Resolve with proof API" icon="code" href="/api/complaints">
+    See the full request and response schema for the resolve endpoint.
+  </Card>
+</CardGroup>

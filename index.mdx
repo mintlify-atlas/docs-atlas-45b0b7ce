@@ -1,97 +1,65 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: "HCIMS AI: Hotel Complaint Intelligence Management"
+description: "Turn guest reviews into department tickets automatically. HCIMS AI classifies complaints, routes to the right team, validates proof, and tracks resolution."
 ---
 
-## Setting up
+HCIMS AI is an AI-powered hotel complaint management platform that transforms raw guest feedback into structured, trackable department tickets. Upload a CSV of reviews, and the system automatically distinguishes complaints from appreciations, assigns priority, routes each ticket to the correct department, and alerts your team — all without manual triage.
 
-Get your documentation site up and running in minutes.
-
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
-
-## Make it yours
-
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Get the frontend and backend running locally in under 10 minutes
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="Architecture" icon="diagram-project" href="/architecture">
+    Understand how the AI pipeline, database, and UI fit together
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="Admin Dashboard" icon="gauge" href="/dashboards/admin-dashboard">
+    Upload reviews, manage tickets, and view operational analytics
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="API Reference" icon="code" href="/api/overview">
+    Explore every backend endpoint with request and response details
   </Card>
-</Columns>
+</CardGroup>
 
-## Create beautiful pages
+## How it works
 
-Everything you need to create world-class documentation.
+<Steps>
+  <Step title="Upload guest reviews">
+    Sign in as an admin and upload a CSV file containing guest reviews from the **Upload** page. The backend classifies each row as a complaint or appreciation instantly.
+  </Step>
+  <Step title="Tickets are routed automatically">
+    The ML pipeline assigns each complaint a department (Housekeeping, Food & Beverage, Engineering, IT Support, or Front Office) and a priority level (High, Medium, or Low).
+  </Step>
+  <Step title="Staff resolve tickets with proof">
+    Department staff sign in to their dashboard, view assigned tickets, and upload a photo as proof of resolution. The Nonescape AI model verifies that the proof image is genuine — not AI-generated.
+  </Step>
+  <Step title="Admins review analytics">
+    Track resolution rates, department health, recurring issues, and overdue tickets through the analytics dashboard with date range filters and dark mode support.
+  </Step>
+</Steps>
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
+## Key capabilities
 
-## Need inspiration?
+<CardGroup cols={2}>
+  <Card title="Complaint classification" icon="brain" href="/features/complaint-classification">
+    Sentence-embedding cosine similarity distinguishes complaints from appreciations
+  </Card>
+  <Card title="Department routing" icon="sitemap" href="/features/department-routing">
+    Automatically assigns tickets to Housekeeping, F&B, Engineering, IT, or Front Office
+  </Card>
+  <Card title="Proof validation" icon="shield-check" href="/features/proof-validation">
+    Nonescape AI detects synthetic images to prevent fraudulent ticket resolutions
+  </Card>
+  <Card title="Multilingual support" icon="language" href="/features/multilingual-support">
+    Sarvam AI enables voice input and UI translation in 22+ Indian languages
+  </Card>
+  <Card title="Analytics dashboard" icon="chart-bar" href="/features/analytics">
+    Date-filtered charts show ticket health, resolution trends, and recurring issues
+  </Card>
+  <Card title="ML pipeline" icon="flask" href="/ml/overview">
+    KMeans clustering with MLflow tracking and DVC data versioning
+  </Card>
+</CardGroup>
 
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+<Note>
+  HCIMS AI is ready for demos and controlled pilots. Review the [production deployment guide](/deployment/production) before going live.
+</Note>

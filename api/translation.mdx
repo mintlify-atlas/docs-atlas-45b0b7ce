@@ -1,0 +1,190 @@
+---
+title: "Translate text and transcribe audio via Sarvam AI"
+description: "Convert hotel review text between Indian languages and transcribe multilingual voice recordings using the Sarvam AI speech and translation APIs."
+---
+
+The translation and voice endpoints connect HCIMS to [Sarvam AI](https://sarvam.ai) to support India's multilingual hospitality workforce. Staff can submit complaint notes in their native language, and guests can record voice reviews in any of 12 supported Indian languages. Both endpoints require a valid `SARVAM_API_KEY` in the server environment — requests will return `503` if the key is absent.
+
+---
+
+## POST /translate/texts
+
+Translate an array of strings from one language to another. Up to five translations are dispatched concurrently. If the source and target language codes are identical, the input texts are returned unchanged without calling Sarvam AI.
+
+### Request body
+
+<ParamField body="texts" type="string[]" required>
+  Array of strings to translate. An empty array returns immediately with an empty `translations` array.
+</ParamField>
+<ParamField body="target_language_code" type="string" required>
+  BCP-47 language code for the desired output language, e.g. `"hi-IN"` for Hindi.
+</ParamField>
+<ParamField body="source_language_code" type="string" default="en-IN">
+  BCP-47 language code of the input text. Defaults to `"en-IN"` (Indian English).
+</ParamField>
+
+### Constraints
+
+- Each individual string in `texts` must be **2000 characters or fewer**.
+- Strings that exceed this limit cause the entire request to fail with `400`.
+- Empty strings within the array are passed through to Sarvam AI as-is (Sarvam AI returns them unchanged).
+
+### Response
+
+<ResponseField name="translations" type="string[]" required>
+  Translated strings in the same order as the input `texts` array.
+</ResponseField>
+<ResponseField name="source_language_code" type="string" required>
+  The source language code used for translation, echoed from the request.
+</ResponseField>
+<ResponseField name="target_language_code" type="string" required>
+  The target language code used for translation, echoed from the request.
+</ResponseField>
+
+```bash cURL
+curl --request POST \
+  --url http://localhost:8001/translate/texts \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "texts": [
+      "The room was not cleaned properly.",
+      "The air conditioning was broken."
+    ],
+    "source_language_code": "en-IN",
+    "target_language_code": "hi-IN"
+  }'
+```
+
+```json Response
+{
+  "translations": [
+    "कमरे की सफाई ठीक से नहीं की गई थी।",
+    "एयर कंडीशनिंग खराब थी।"
+  ],
+  "source_language_code": "en-IN",
+  "target_language_code": "hi-IN"
+}
+```
+
+### Supported language codes
+
+| Language | Code |
+|---|---|
+| Hindi | `hi-IN` |
+| Tamil | `ta-IN` |
+| Telugu | `te-IN` |
+| Kannada | `kn-IN` |
+| Bengali | `bn-IN` |
+| Marathi | `mr-IN` |
+| Gujarati | `gu-IN` |
+| Malayalam | `ml-IN` |
+| Punjabi | `pa-IN` |
+| Odia | `or-IN` |
+| Assamese | `as-IN` |
+| Urdu | `ur-IN` |
+| Indian English | `en-IN` |
+
+### Errors
+
+| Status | Detail |
+|---|---|
+| `400` | One or more texts exceed 2000 characters |
+| `503` | `SARVAM_API_KEY` not configured on the server |
+
+---
+
+## POST /transcribe
+
+Transcribe an audio recording of a guest or staff member speaking in an Indian language. Accepts `multipart/form-data`. The underlying Sarvam AI model is `saaras:v3`.
+
+<Info>
+  Set `mode` to `"translate"` to receive the transcript directly in English, regardless of the spoken language. Use `"transcribe"` to receive the text in the original spoken language.
+</Info>
+
+### Form fields
+
+<ParamField body="audio" type="file" required>
+  Audio file to transcribe. Any format supported by Sarvam AI is accepted (WebM, MP3, WAV, OGG, etc.).
+</ParamField>
+<ParamField body="mode" type="string" default="transcribe">
+  Processing mode. Use `"transcribe"` to get text in the original spoken language, or `"translate"` to auto-translate to English.
+</ParamField>
+<ParamField body="language_code" type="string" default="auto">
+  BCP-47 language code of the spoken audio. Defaults to `"auto"` for automatic language detection. Provide a specific code (e.g. `"hi-IN"`) to improve accuracy when the language is known.
+</ParamField>
+
+### Supported languages
+
+| Language | Code |
+|---|---|
+| Hindi | `hi-IN` |
+| Tamil | `ta-IN` |
+| Telugu | `te-IN` |
+| Kannada | `kn-IN` |
+| Bengali | `bn-IN` |
+| Marathi | `mr-IN` |
+| Gujarati | `gu-IN` |
+| Malayalam | `ml-IN` |
+| Punjabi | `pa-IN` |
+| Odia | `or-IN` |
+| Assamese | `as-IN` |
+| Urdu | `ur-IN` |
+
+### Response
+
+<ResponseField name="transcript" type="string" required>
+  The transcribed (and optionally translated) text. Empty string if no speech was detected.
+</ResponseField>
+<ResponseField name="language_code" type="string" required>
+  The language code detected or used during transcription. Matches the `language_code` field returned by Sarvam AI.
+</ResponseField>
+
+<CodeGroup>
+
+```bash Transcribe (original language)
+curl --request POST \
+  --url http://localhost:8001/transcribe \
+  --form 'audio=@/path/to/recording.webm' \
+  --form 'mode=transcribe' \
+  --form 'language_code=hi-IN'
+```
+
+```bash Translate to English
+curl --request POST \
+  --url http://localhost:8001/transcribe \
+  --form 'audio=@/path/to/recording.webm' \
+  --form 'mode=translate'
+```
+
+```bash Auto-detect language
+curl --request POST \
+  --url http://localhost:8001/transcribe \
+  --form 'audio=@/path/to/recording.webm'
+```
+
+</CodeGroup>
+
+<CodeGroup>
+
+```json Transcribe response (Hindi)
+{
+  "transcript": "कमरे में पंखा काम नहीं कर रहा था।",
+  "language_code": "hi-IN"
+}
+```
+
+```json Translate response (English)
+{
+  "transcript": "The fan in the room was not working.",
+  "language_code": "hi-IN"
+}
+```
+
+</CodeGroup>
+
+### Errors
+
+| Status | Detail |
+|---|---|
+| `400` | Uploaded audio file is empty (zero bytes) |
+| `503` | `SARVAM_API_KEY` not configured on the server |

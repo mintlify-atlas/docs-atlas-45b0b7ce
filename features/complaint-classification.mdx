@@ -1,0 +1,107 @@
+---
+title: "AI-Powered Complaint Classification Engine for Hotels"
+description: "Classify hotel reviews as complaints or appreciations, assign priority, and route tickets to the correct department using ML embeddings."
+---
+
+Every review submitted through HCIMS AI passes through a multi-stage classification pipeline before a ticket is ever created. The engine reads the review text, decides whether it is a complaint or a genuine appreciation, assigns a priority level, and returns a structured prediction — all in a single API call. The result is stored directly in Supabase so that staff and administrators see new tickets without any manual triage.
+
+## How classification works
+
+The classification engine uses the **all-MiniLM-L6-v2** sentence transformer model to convert a review into a dense vector embedding. That embedding is L2-normalised and compared against a pre-built matrix of training complaint embeddings using **cosine similarity**. The training complaint with the highest similarity score determines the predicted department and the representative issue text. A separate appreciation check runs in parallel and takes precedence when the review is positive.
+
+<Steps>
+  <Step title="Embed the review">
+    The review text is passed to `all-MiniLM-L6-v2`, which produces a 384-dimensional vector. The vector is L2-normalised before comparison.
+  </Step>
+  <Step title="Run appreciation detection">
+    Before routing to a department, the system checks whether the review is positive feedback. Detection uses DistilBERT sentiment scoring, cosine similarity against 48 curated appreciation reference sentences, and a library of India-specific positive phrases. If the review is an appreciation, classification stops here.
+  </Step>
+  <Step title="Find the nearest complaint">
+    If the review is not an appreciation, the normalised embedding is compared to every training complaint embedding via cosine similarity. The best-matching complaint determines the predicted department and issue text.
+  </Step>
+  <Step title="Assign priority">
+    Priority is determined by keyword matching on the raw review text (case-insensitive). The result is attached to the prediction before it is returned.
+  </Step>
+  <Step title="Create the ticket">
+    The prediction response is written to the `complaints` or `appreciations` table in Supabase under the admin's account. Department staff see the ticket immediately in their queue.
+  </Step>
+</Steps>
+
+## Complaint vs appreciation detection
+
+A review is classified as an **appreciation** only when it passes all of the following checks:
+
+- No negative-cue words are present (e.g., `broken`, `dirty`, `delay`, `cockroach`).
+- No contrast words are present (e.g., `but`, `however`, `although`).
+- DistilBERT sentiment score is **≥ 0.65** (positive confidence).
+- Cosine similarity to the nearest appreciation reference is **≥ 0.38** and exceeds the nearest complaint similarity.
+
+An override path also exists: if DistilBERT confidence is **≥ 0.90** and appreciation similarity is **≥ 0.30**, the review is classified as an appreciation regardless of the similarity gap. Indian-English phrases such as "too good", "fully satisfied", and "will definitely visit again" receive a **+0.15 similarity boost** before the threshold check.
+
+<Note>
+  The phrase "no complaints" is explicitly whitelisted — the words "no" and "complaint" are removed from the negative-cue check so that this common positive Indian hotel review phrase is classified correctly.
+</Note>
+
+## Priority assignment
+
+Priority is determined by scanning the review text for specific keywords. The first matching tier wins.
+
+| Priority | Trigger keywords | Example review fragment |
+|----------|-----------------|------------------------|
+| **High** | `not working`, `broken`, `leak` | "The AC is not working in room 204." |
+| **Medium** | `slow`, `late` | "Room service was very slow tonight." |
+| **Low** | *(no match)* | "The minibar was not stocked." |
+
+Appreciations always receive `Low` priority, since they do not require resolution.
+
+## Prediction response shape
+
+<Tabs>
+  <Tab title="Complaint response">
+    ```json
+    {
+      "type": "complaint",
+      "issue_text": "Air conditioning not working properly in the room.",
+      "department": "Engineering & Maintenance",
+      "priority": "High",
+      "confidence": 0.8741
+    }
+    ```
+  </Tab>
+  <Tab title="Appreciation response">
+    ```json
+    {
+      "type": "appreciation",
+      "department": "Housekeeping",
+      "confidence": 0.5312,
+      "matched_reference": "The housekeeping team did an excellent job keeping the room tidy."
+    }
+    ```
+  </Tab>
+</Tabs>
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `type` | string | `"complaint"` or `"appreciation"` |
+| `issue_text` | string | The best-matching training complaint text (complaints only) |
+| `department` | string | Target department for routing |
+| `priority` | string | `"High"`, `"Medium"`, or `"Low"` |
+| `confidence` | number | Cosine similarity score (0–1) of the best match |
+| `matched_reference` | string | Closest appreciation reference sentence (appreciations only) |
+
+## After classification: ticket creation
+
+Once a prediction is returned, the frontend writes the result to Supabase:
+
+- **Complaints** are inserted into the `complaints` table with `status: "Active"`, the `priority`, `department`, and `uploaded_by_admin_id` fields populated.
+- **Appreciations** are inserted into the `appreciations` table with `department` and `confidence`.
+- Both record types are scoped to the admin who uploaded the CSV, ensuring data isolation across hotel accounts.
+
+<CardGroup cols={2}>
+  <Card title="Department routing" icon="arrow-right" href="/features/department-routing">
+    Learn how classified tickets are assigned to staff and how deadlines are set.
+  </Card>
+  <Card title="Prediction API" icon="code" href="/api/prediction">
+    Integrate directly with the `/predict` and `/predict_batch` endpoints.
+  </Card>
+</CardGroup>

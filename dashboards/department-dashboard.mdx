@@ -1,0 +1,175 @@
+---
+title: 'Department Staff Dashboard: Resolve Assigned Tickets'
+description: 'Department staff view and resolve complaint tickets assigned to their department, submit proof photos, and add resolution notes using voice or text input.'
+---
+
+When a department staff member logs in to HCIMS AI, they land on their department dashboard — a focused workspace showing only the complaint tickets assigned to their department by the AI classifier. Unlike the admin dashboard, there are no upload controls, no staff management tools, and no cross-department data. Everything on this screen is scoped to the single department the staff account was created for.
+
+## What department staff can see
+
+The department dashboard displays the same five stat cards as the admin view, but the counts reflect only tickets from the staff member's own department and admin account.
+
+| Stat | What it counts |
+|---|---|
+| **Total Tickets** | All tickets assigned to this department under the linked admin account |
+| **Active** | Open tickets within their resolution deadline |
+| **Pending** | Open tickets flagged for attention |
+| **Resolved** | Tickets the department has successfully closed with verified proof |
+| **Extended** | Tickets whose deadline has passed without a verified resolution |
+
+Below the stat cards, the full ticket table lists every complaint routed to this department. Staff cannot see tickets belonging to other departments.
+
+## Ticket details
+
+Each ticket in the table contains the following information:
+
+- **Complaint text** — the original guest review that triggered the ticket
+- **Department** — always matches the staff member's own department
+- **Priority** — High, Medium, or Low, assigned by the AI classifier
+- **Status** — Active, Pending, Resolved, or Extended (computed dynamically)
+- **Created date** — when the ticket was uploaded by the admin
+- **Deadline** — the resolution due date calculated at upload time
+
+The table supports free-text search and filters for priority and status, so staff can quickly surface High-priority or overdue tickets.
+
+## Resolving a ticket
+
+Resolving a ticket requires uploading a real proof photograph. This mandatory step exists to prevent false closures and is enforced by an AI-generated image detection check on the server before the ticket status changes.
+
+<Steps>
+  <Step title="Click Resolve on a ticket">
+    Each open ticket row has a **Resolve** button. Click it to open the resolution dialog. The dialog shows the complaint text so the staff member can confirm they are resolving the correct issue.
+  </Step>
+  <Step title="Upload a proof photo">
+    Click the dashed upload area in the dialog to select a photo from the device. The file must be a real image (JPEG, PNG, WebP, or other standard image format). PDFs are not accepted. Maximum file size is 10 MB.
+
+    <Warning>
+      AI-generated images are detected and blocked. Submitting an image created by an image generation tool will result in the resolution being rejected and the ticket remaining open. The admin will be notified of the blocked attempt.
+    </Warning>
+  </Step>
+  <Step title="Add resolution notes (optional)">
+    Type a description of the action taken in the **Resolution Notes** field. This field is optional but recommended for auditing purposes. You can also dictate notes by voice — tap the microphone icon next to the field label to activate voice input.
+  </Step>
+  <Step title="Submit for proof validation">
+    Click **Mark Resolved**. The proof image is sent to the server where it is screened by the AI-generated content detector. If validation passes, the ticket status changes to Resolved and the proof photo URL is stored on the ticket record.
+  </Step>
+</Steps>
+
+<Note>
+  The Resolve button is only shown for tickets in Active or Pending status. Tickets already in Resolved or Extended status display their current state and, if proof was submitted, a link to the proof image.
+</Note>
+
+## Proof validation: what happens behind the scenes
+
+When a staff member submits a resolution, the proof image goes through the following steps before the ticket is marked Resolved:
+
+<Steps>
+  <Step title="Image format check">
+    The server confirms the uploaded file is a valid image. Non-image files and files over 10 MB are rejected before reaching the AI detector.
+  </Step>
+  <Step title="AI-generated image detection">
+    The image is analysed by the proof validation service, which returns a confidence score. If the confidence that the image is AI-generated exceeds the detection threshold, the resolution is blocked.
+  </Step>
+  <Step title="Result returned to staff">
+    If the image passes, the ticket is marked Resolved. If the image is flagged, the staff member sees an error message in the dialog that includes the detector confidence score. The ticket remains open.
+  </Step>
+  <Step title="Admin notification on rejection">
+    When a proof image is blocked, the admin account linked to the department receives a notification. This creates an audit trail of rejected resolution attempts for review.
+  </Step>
+</Steps>
+
+See [Proof validation](/features/proof-validation) for full technical details on the detection service.
+
+## What happens when proof is rejected
+
+If the system detects that the submitted image is AI-generated, the following occurs:
+
+- The resolution dialog displays an inline error message with the rejection reason and the detector confidence percentage
+- The ticket status does not change — it remains Active, Pending, or Extended as before
+- A toast notification appears on screen confirming that the resolution was blocked
+- The admin linked to the staff account receives a notification alerting them to the blocked attempt
+
+<Warning>
+  Repeatedly submitting AI-generated images as proof may result in the admin reviewing and removing the staff account. Always photograph the actual resolved issue on-site.
+</Warning>
+
+## Ticket status lifecycle from a staff perspective
+
+From the moment a ticket appears in the department dashboard to the moment it is closed, it moves through the following states:
+
+```text
+Classified by AI → Active (ticket appears in dashboard)
+                      ↓
+                 Staff action required
+                      ↓
+            Resolve dialog opened → proof photo submitted
+                      ↓
+           Proof passes validation → Resolved (ticket closed)
+```
+
+If no action is taken before the deadline:
+
+```text
+Active / Pending → deadline passes → Extended (ticket remains open, flagged overdue)
+```
+
+Extended tickets can still be resolved. The Resolve button remains available and the workflow is identical — a valid proof photo is still required.
+
+## Voice input for resolution notes
+
+The resolution notes field supports hands-free dictation via Sarvam AI voice input. This is useful when staff are on-site and cannot type easily.
+
+<Tabs>
+  <Tab title="How to use voice input">
+    1. Open the resolve dialog for a ticket.
+    2. Tap the microphone icon to the right of the **Resolution Notes** label.
+    3. Speak your resolution description. Sarvam AI transcribes the speech and translates it to English if it was spoken in a supported Indian language.
+    4. The transcribed text is appended to any existing notes in the text area. You can tap the microphone again to add more, or edit the text manually.
+  </Tab>
+  <Tab title="Supported languages">
+    Voice input uses the same Sarvam AI integration as the admin's voice complaint feature. All Indian languages supported by Sarvam AI are available for dictation in the resolution notes field.
+
+    See [multilingual support](/features/multilingual-support) for the language list and transcription behaviour.
+  </Tab>
+</Tabs>
+
+## Sidebar navigation for staff
+
+Department staff accounts have a simplified sidebar with a single navigation item.
+
+<CardGroup cols={2}>
+  <Card title="My Tickets" icon="ticket" href="/dashboards/department-dashboard">
+    The department dashboard. Shows stats and the full ticket table for this department.
+  </Card>
+  <Card title="Sign Out" icon="arrow-right-from-bracket" href="/dashboards/department-dashboard">
+    Signs the staff member out of the session. Clicking Sign Out in the sidebar footer ends the session immediately.
+  </Card>
+</CardGroup>
+
+Staff accounts do not have access to Upload Complaints, Analytics, Staff Accounts, Activity Logs, or Appreciations. Those sections are admin-only.
+
+## Data isolation for staff accounts
+
+Staff accounts can only query tickets that satisfy two conditions simultaneously:
+
+1. The ticket's `department` field matches the department the staff account was created for.
+2. The ticket's `uploaded_by_admin_id` matches the admin account that created the staff account.
+
+This is enforced by Supabase Row Level Security at the database level. A staff member from one hotel cannot see tickets from another hotel, even if both hotels use HCIMS AI. Similarly, a Housekeeping staff account cannot see Tickets assigned to Food & Beverage.
+
+## Related pages
+
+<CardGroup cols={2}>
+  <Card title="Proof validation" icon="shield-check" href="/features/proof-validation">
+    How HCIMS AI detects AI-generated images and blocks fraudulent resolutions.
+  </Card>
+  <Card title="Multilingual support" icon="language" href="/features/multilingual-support">
+    Sarvam AI voice input and translation for resolution notes and complaint entry.
+  </Card>
+  <Card title="Admin dashboard" icon="gauge" href="/dashboards/admin-dashboard">
+    How admins upload reviews, manage staff accounts, and monitor department performance.
+  </Card>
+  <Card title="Analytics" icon="chart-bar" href="/features/analytics">
+    Charts and trends based on ticket resolution data across all departments.
+  </Card>
+</CardGroup>

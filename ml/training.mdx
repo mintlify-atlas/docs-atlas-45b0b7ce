@@ -1,0 +1,221 @@
+---
+title: "Training the HCIMS AI Complaint Classification Model"
+description: "Run the HCIMS AI training pipeline: generate sentence embeddings, select optimal KMeans clusters via silhouette score, log metrics to MLflow."
+---
+
+The training pipeline in `src/train_model.py` produces the four artifacts that power real-time complaint inference. It runs as a single Python script with no external orchestration dependencies beyond DVC, and every hyperparameter is concentrated in a small configuration block at the top of the file. The pipeline encodes each complaint in the training dataset into a 384-dimensional sentence embedding, evaluates KMeans models across a configurable cluster range using silhouette score, then trains a final model on the optimal cluster count and persists all artifacts to disk.
+
+## Configuration constants
+
+Three constants at the top of `train_model.py` control the entire training run. Modify these before invoking `dvc repro` to experiment with different models or cluster ranges.
+
+```python
+DATA_PATH      = "data/expanded_complaints.csv"
+EMBEDDING_MODEL = "all-MiniLM-L6-v2"   # SentenceTransformer model name
+CLUSTER_RANGE   = range(3, 9)           # evaluate k = 3, 4, 5, 6, 7, 8
+RANDOM_STATE    = 42
+```
+
+<Note>
+  `CLUSTER_RANGE` is a Python `range` object. The upper bound is exclusive, so `range(3, 9)`
+  tests six values: 3, 4, 5, 6, 7, and 8.
+</Note>
+
+## Training pipeline steps
+
+<Steps>
+  <Step title="Load and clean the dataset">
+    The pipeline reads `data/expanded_complaints.csv` with pandas, drops null rows and
+    duplicate entries, then extracts the `complaint` column as a plain list of strings.
+
+    ```python
+    def load_dataset(path):
+        df = pd.read_csv(path)
+        df = df.dropna()
+        df = df.drop_duplicates()
+        complaints = df["complaint"].astype(str).tolist()
+        return df, complaints
+    ```
+
+    The returned `df` DataFrame is preserved intact and saved later as `df.pkl` so the
+    inference engine can look up department metadata by row index.
+  </Step>
+
+  <Step title="Generate sentence embeddings">
+    Every complaint string is encoded by `all-MiniLM-L6-v2` in batches of 64. The resulting
+    float32 matrix is immediately L2-normalized so that downstream cosine similarity
+    calculations reduce to efficient dot products.
+
+    ```python
+    def generate_embeddings(texts):
+        model = SentenceTransformer(EMBEDDING_MODEL)
+        embeddings = model.encode(
+            texts,
+            batch_size=64,
+            show_progress_bar=True,
+            convert_to_numpy=True
+        )
+        # Normalize vectors for cosine similarity
+        embeddings = normalize(embeddings)
+        return embeddings
+    ```
+
+    The shape of the resulting array is `(N, 384)` where N is the number of complaints
+    after cleaning.
+  </Step>
+
+  <Step title="Find the optimal cluster count">
+    For each value of `k` in `CLUSTER_RANGE`, a KMeans model is fit and its
+    [silhouette score](https://scikit-learn.org/stable/modules/clustering.html#silhouette-coefficient)
+    is computed. The value of `k` with the highest silhouette score is selected.
+
+    ```python
+    def find_best_clusters(embeddings):
+        scores = {}
+        for k in CLUSTER_RANGE:
+            kmeans = KMeans(n_clusters=k, random_state=RANDOM_STATE, n_init=20)
+            labels = kmeans.fit_predict(embeddings)
+            score = silhouette_score(embeddings, labels)
+            scores[k] = score
+            print(f"Clusters {k} → Silhouette Score: {score:.4f}")
+
+        best_k = max(scores, key=scores.get)
+        return best_k, scores
+    ```
+
+    <Tip>
+      Silhouette score ranges from -1 to 1. Values above 0.3 indicate reasonable cluster
+      separation; values above 0.5 are strong. If your score is low, try expanding
+      `CLUSTER_RANGE` or adding more training data.
+    </Tip>
+  </Step>
+
+  <Step title="Train the final KMeans model">
+    Once `best_k` is identified, a fresh KMeans model is trained on the full embedding
+    matrix with `n_init=20` restarts to reduce sensitivity to random initialization.
+
+    ```python
+    def train_kmeans(embeddings, best_k):
+        kmeans = KMeans(
+            n_clusters=best_k,
+            random_state=RANDOM_STATE,
+            n_init=20
+        )
+        kmeans.fit(embeddings)
+        score = silhouette_score(embeddings, kmeans.labels_)
+        return kmeans, score
+    ```
+  </Step>
+
+  <Step title="Log metrics to MLflow">
+    The training run is wrapped in an MLflow context. Three parameters and one metric
+    are recorded for every run, making it easy to compare experiments in the MLflow UI.
+
+    ```python
+    mlflow.start_run()
+
+    # ... training steps ...
+
+    mlflow.log_param("embedding_model", EMBEDDING_MODEL)
+    mlflow.log_param("dataset_size", len(df))
+    mlflow.log_param("clusters", best_k)
+    mlflow.log_metric("silhouette_score", final_score)
+
+    mlflow.end_run()
+    ```
+  </Step>
+
+  <Step title="Save artifacts to disk">
+    All four artifacts are serialized with `pickle` and written to the `artifacts/`
+    directory. DVC tracks this directory as the output of the `train` stage.
+
+    ```python
+    def save_artifacts(df, embeddings, model, metrics):
+        with open("artifacts/df.pkl", "wb") as f:
+            pickle.dump(df, f)
+        with open("artifacts/embeddings.pkl", "wb") as f:
+            pickle.dump(embeddings, f)
+        with open("artifacts/kmeans.pkl", "wb") as f:
+            pickle.dump(model, f)
+        with open("artifacts/metrics.pkl", "wb") as f:
+            pickle.dump(metrics, f)
+    ```
+
+    The `metrics` dictionary saved to `metrics.pkl` contains:
+
+    ```python
+    {
+        "best_clusters": best_k,           # int — optimal k selected
+        "silhouette_score": float(score),  # float — final model score
+        "dataset_size": len(df)            # int — rows after cleaning
+    }
+    ```
+  </Step>
+</Steps>
+
+## Reproducing a training run
+
+### With DVC
+
+DVC determines whether the training stage is stale by comparing checksums of the declared
+`deps` against their last recorded state. If either `src/train_model.py` or
+`data/expanded_complaints.csv` has changed, DVC re-executes `python src/train_model.py`
+and updates all four output artifacts.
+
+```bash
+dvc repro
+```
+
+To force a full re-run regardless of cache state:
+
+```bash
+dvc repro --force
+```
+
+### Directly
+
+Run the training script directly if you are iterating quickly and do not need DVC cache tracking:
+
+```bash
+python src/train_model.py
+```
+
+## Viewing experiment runs in MLflow
+
+After one or more training runs, launch the MLflow tracking UI to compare silhouette scores,
+cluster counts, and dataset sizes across experiments.
+
+```bash
+mlflow ui
+```
+
+The UI is available at `http://127.0.0.1:5000` by default. Each row in the experiment table
+corresponds to one call to `main()` in `train_model.py`.
+
+## Checking model quality after training
+
+`src/check_model_quality.py` re-loads `embeddings.pkl` and `kmeans.pkl` and prints the
+silhouette score for the saved model, providing a quick post-training sanity check without
+re-running the full pipeline.
+
+```python
+# src/check_model_quality.py
+with open("artifacts/embeddings.pkl", "rb") as f:
+    embeddings = pickle.load(f)
+
+with open("artifacts/kmeans.pkl", "rb") as f:
+    kmeans = pickle.load(f)
+
+score = silhouette_score(embeddings, kmeans.labels_)
+print("Silhouette Score:", score)
+```
+
+```bash
+python src/check_model_quality.py
+```
+
+<Warning>
+  Always run `check_model_quality.py` after replacing training data. A significant drop in
+  silhouette score (more than ~0.1) suggests the new data may require a wider `CLUSTER_RANGE`
+  or data cleaning review.
+</Warning>

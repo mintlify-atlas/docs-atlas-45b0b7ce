@@ -1,0 +1,147 @@
+---
+title: "Multilingual Support for 22 Indian Languages in HCIMS"
+description: "Submit and navigate HCIMS AI entirely in your preferred Indian language — voice input, UI translation, and text processing all powered by Sarvam AI."
+---
+
+HCIMS AI is built from the ground up for Indian hospitality operations, where guests and staff may communicate in any of dozens of regional languages. The platform supports 22 or more Indian languages through two complementary capabilities: a **UI translation layer** that renders the entire dashboard interface in the selected language, and a **voice input component** that transcribes spoken complaints directly into text. Both are powered by [Sarvam AI](https://sarvam.ai), India's large language model platform.
+
+## Supported languages
+
+The following Indian languages are available for both UI translation and voice transcription. All language codes follow the BCP-47 `lang-IN` format used by Sarvam AI.
+
+| Language | Code | Language | Code |
+|----------|------|----------|------|
+| Hindi | `hi-IN` | Malayalam | `ml-IN` |
+| Tamil | `ta-IN` | Punjabi | `pa-IN` |
+| Telugu | `te-IN` | Odia | `or-IN` |
+| Kannada | `kn-IN` | Assamese | `as-IN` |
+| Bengali | `bn-IN` | Urdu | `ur-IN` |
+| Marathi | `mr-IN` | English (India) | `en-IN` |
+| Gujarati | `gu-IN` | Auto-detect | `auto` |
+
+<Note>
+  Sarvam AI's `saaras:v3` model supports auto-detection of the spoken language. Staff do not need to pre-select a language if it is unclear which one a guest will use.
+</Note>
+
+## UI translation
+
+The language switcher component is rendered in the navigation bar of every page. Selecting a language triggers a translation pass over all visible page text, replacing English strings with their equivalents in the chosen language.
+
+Translation is performed by calling `POST /translate/texts` on the HCIMS AI backend, which proxies the request to the **Sarvam Translate API** (`https://api.sarvam.ai/translate`). The model used is `sarvam-translate:v1` in `formal` mode, which is well-suited to the professional, service-oriented language of hotel operations.
+
+### Concurrency and rate management
+
+To avoid overwhelming the Sarvam API when a page contains many text segments, the backend enforces a concurrency limit using an `asyncio.Semaphore`:
+
+```python
+semaphore = asyncio.Semaphore(5)
+```
+
+Up to **5 translation requests** run simultaneously. All additional requests wait until a slot is free. This ensures predictable latency without exceeding upstream rate limits.
+
+### Text length limit
+
+Each individual text string sent for translation must be **2,000 characters or fewer**. Strings longer than this limit cause the entire `/translate/texts` request to return a `400` error. In practice, UI labels and complaint summaries are well within this limit.
+
+```json
+{
+  "texts": ["Room is not clean", "AC is broken"],
+  "source_language_code": "en-IN",
+  "target_language_code": "hi-IN"
+}
+```
+
+Response:
+
+```json
+{
+  "translations": ["कमरा साफ नहीं है", "एसी खराब है"],
+  "source_language_code": "en-IN",
+  "target_language_code": "hi-IN"
+}
+```
+
+<Tip>
+  Elements marked with `data-no-translate="true"` — such as the language switcher itself, department names, and system codes — are excluded from translation to prevent rendering errors.
+</Tip>
+
+## Voice input transcription
+
+The `VoiceInput` component allows staff to speak a complaint aloud rather than type it. Audio is captured in the browser using the Web Audio API (`audio/webm;codecs=opus`) and sent to `POST /transcribe`. The backend forwards the audio to Sarvam AI's speech-to-text service and returns the transcript.
+
+### Transcription modes
+
+<Tabs>
+  <Tab title="transcribe mode">
+    The spoken text is returned in the **original language**. Use this when you want to capture the guest's words verbatim and the downstream processing supports the source language.
+
+    ```bash
+    # Form fields sent to POST /transcribe
+    mode=transcribe
+    language_code=ta-IN   # or 'auto' for auto-detection
+    ```
+
+    Response:
+    ```json
+    {
+      "transcript": "அறையில் ஏ.சி. வேலை செய்யவில்லை",
+      "language_code": "ta-IN"
+    }
+    ```
+  </Tab>
+  <Tab title="translate mode">
+    The spoken text is **automatically translated to English** before the transcript is returned. This is the default mode for the complaint input form, ensuring that the ML classification model always receives English text.
+
+    ```bash
+    # Form fields sent to POST /transcribe
+    mode=translate
+    language_code=auto
+    ```
+
+    Response:
+    ```json
+    {
+      "transcript": "The AC in the room is not working",
+      "language_code": "ta-IN"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+The Sarvam speech-to-text endpoints used are:
+
+| Mode | Endpoint |
+|------|----------|
+| `transcribe` | `https://api.sarvam.ai/speech-to-text` |
+| `translate` | `https://api.sarvam.ai/speech-to-text-translate` |
+
+Both use Sarvam's `saaras:v3` model.
+
+## Language switcher component
+
+The `LanguageSwitcher` component is a dropdown rendered in the top navigation bar. It reads the current language from the `LanguageContext` and displays a loading spinner while a translation batch is in progress.
+
+```
+[🌐 ▾]  Hindi ▾
+```
+
+Selecting a new language calls `setLanguage(code)`, which triggers a fresh translation pass over all text content currently on screen. The component uses `data-no-translate="true"` on all its own elements so that the language list itself is never translated.
+
+## Configuration
+
+To enable multilingual features, set the Sarvam API key in your environment:
+
+```bash
+SARVAM_API_KEY=your_sarvam_api_key_here
+```
+
+If `SARVAM_API_KEY` is not set, both `/translate/texts` and `/transcribe` return `503 Service Unavailable`. All other HCIMS AI features continue to operate normally — multilingual support degrades gracefully.
+
+<CardGroup cols={2}>
+  <Card title="Complaint classification" icon="brain" href="/features/complaint-classification">
+    Transcribed voice complaints feed directly into the classification engine.
+  </Card>
+  <Card title="Analytics" icon="chart-bar" href="/features/analytics">
+    Monitor complaint volumes across languages and departments.
+  </Card>
+</CardGroup>

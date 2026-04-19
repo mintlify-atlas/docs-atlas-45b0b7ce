@@ -1,0 +1,156 @@
+---
+title: 'Supabase Project Setup Guide for HCIMS AI'
+description: 'Step-by-step instructions to create and configure the Supabase project that powers HCIMS AI — including auth, storage, and running database migrations.'
+---
+
+HCIMS AI uses Supabase as its backend-as-a-service layer, providing a PostgreSQL database, authentication, file storage, and Edge Functions. This guide walks you through creating a new Supabase project, retrieving the credentials your environment variables need, enabling the required auth provider, setting up the `proofs` storage bucket, and applying the database migrations with the Supabase CLI.
+
+## Create a Supabase project
+
+<Steps>
+  <Step title="Sign in to Supabase">
+    Go to [supabase.com](https://supabase.com) and sign in with your GitHub account or email address. If you do not have an account, create one for free — the free tier is sufficient for development.
+  </Step>
+
+  <Step title="Create a new project">
+    From the Supabase dashboard, click **New project**. Fill in the following fields:
+
+    - **Name** — a recognizable name such as `hcims-ai-prod`
+    - **Database password** — generate a strong password and store it securely; you will need it if you ever connect directly with `psql`
+    - **Region** — choose the region closest to your users to minimize latency
+
+    Click **Create new project** and wait for provisioning to complete (roughly 30 seconds).
+  </Step>
+
+  <Step title="Retrieve your Project URL and keys">
+    Once the project is ready, go to **Project Settings → API** in the left sidebar. You will find three values you need:
+
+    - **Project URL** — paste this into `VITE_SUPABASE_URL` (frontend) and `SUPABASE_URL` (backend)
+    - **anon / public key** — paste this into `VITE_SUPABASE_PUBLISHABLE_KEY`
+    - **service_role key** — paste this into `SUPABASE_SERVICE_ROLE_KEY`
+
+    <Warning>
+      The `service_role` key bypasses all Row Level Security policies. Keep it exclusively in your backend `.env` file and never expose it in the browser.
+    </Warning>
+  </Step>
+
+  <Step title="Retrieve your Project Reference ID">
+    Go to **Project Settings → General**. Copy the **Reference ID** (a short alphanumeric string such as `huwdpsxqqmwdilmxncmw`) and paste it into `VITE_SUPABASE_PROJECT_ID` in your frontend `.env` file. This same value goes into `project_id` in `supabase/config.toml`.
+  </Step>
+</Steps>
+
+---
+
+## Configure authentication
+
+HCIMS AI uses email and password authentication. The email provider is enabled by default on all new Supabase projects, but verify the following settings.
+
+<Steps>
+  <Step title="Open Authentication settings">
+    In the Supabase dashboard, navigate to **Authentication → Providers**.
+  </Step>
+
+  <Step title="Verify the Email provider is enabled">
+    Confirm that the **Email** provider toggle is turned on. For most deployments, leave **Confirm email** enabled so that new staff accounts must verify their address before they can sign in.
+  </Step>
+
+  <Step title="Adjust the site URL">
+    Under **Authentication → URL Configuration**, set **Site URL** to your frontend origin (e.g., `http://localhost:5173` for local development or your production domain). Add any additional redirect URLs you need for OAuth or magic link flows.
+  </Step>
+</Steps>
+
+<Note>
+  HCIMS AI does not use social OAuth providers. Only the Email/Password provider is required.
+</Note>
+
+---
+
+## Set up the proofs storage bucket
+
+Complaint resolution proof images are stored in a Supabase Storage bucket named `proofs`. The initial migration creates this bucket automatically when you run migrations, but you can also create it manually.
+
+<Steps>
+  <Step title="Open Storage in the dashboard">
+    Navigate to **Storage** in the left sidebar.
+  </Step>
+
+  <Step title="Create the bucket (manual path)">
+    If the `proofs` bucket does not already exist, click **New bucket**. Set:
+
+    - **Name** — `proofs`
+    - **Public bucket** — enabled (proof images are served publicly via their URL)
+
+    Click **Save**.
+  </Step>
+
+  <Step title="Verify storage policies">
+    The migrations create two storage policies on `storage.objects` for the `proofs` bucket:
+
+    - **Authenticated users can upload proofs** — allows any authenticated user to `INSERT` objects with `bucket_id = 'proofs'`
+    - **Anyone can view proofs** — allows public `SELECT` access so proof image URLs work without authentication
+
+    These policies are applied automatically when you run migrations. Confirm they appear under **Storage → Policies** after running migrations.
+  </Step>
+</Steps>
+
+---
+
+## Row Level Security overview
+
+Every table in HCIMS AI has Row Level Security (RLS) enabled. All policies are defined in the migration files and are applied automatically by the Supabase CLI. You do not need to configure them manually. Key policy principles:
+
+- **Admin data isolation** — each admin account can only see the complaints, staff profiles, notifications, and activity logs that belong to their own tenant scope, enforced via the `uploaded_by_admin_id` and `created_by_admin_id` columns.
+- **Department staff access** — staff members can read and update only the complaints and notifications that belong to their assigned department and were uploaded by their admin.
+- **Profiles** — users can view and edit their own profile; admins can view and update the staff profiles they created.
+
+<Tip>
+  Never disable RLS on any HCIMS AI table. Doing so would expose all tenants' data to every authenticated user.
+</Tip>
+
+---
+
+## Run migrations with the Supabase CLI
+
+The `supabase/migrations/` directory contains all SQL migrations that create tables, indexes, RLS policies, triggers, and extensions. Apply them using the Supabase CLI.
+
+<Steps>
+  <Step title="Install the Supabase CLI">
+
+    ```bash
+    npm install -g supabase
+    ```
+
+    Verify the installation:
+
+    ```bash
+    supabase --version
+    ```
+  </Step>
+
+  <Step title="Log in and link the project">
+
+    ```bash
+    supabase login
+    supabase link --project-ref your-project-ref
+    ```
+
+    Replace `your-project-ref` with the Reference ID from **Project Settings → General**. You will be prompted for your database password.
+  </Step>
+
+  <Step title="Push all migrations to the remote database">
+
+    ```bash
+    supabase db push
+    ```
+
+    This applies every migration file in `supabase/migrations/` in chronological order. The command is idempotent — already-applied migrations are skipped.
+  </Step>
+
+  <Step title="Verify the schema">
+    After a successful push, navigate to **Table Editor** in the Supabase dashboard and confirm that the following tables exist: `profiles`, `complaints`, `appreciations`, `notifications`, and `activity_logs`.
+  </Step>
+</Steps>
+
+<Note>
+  If you prefer to run migrations against a local Supabase instance during development, use `supabase start` to spin up a local stack and `supabase db reset` to apply all migrations from scratch.
+</Note>
